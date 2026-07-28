@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0A3B4C">
+<title>LAST RESORT</title>
+<meta name="description" content="Eight castaways, eight coves, and a sea that keeps sending worse things ashore. Build a hero, out-survive the tides.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🏝️</text></svg>">
+<style>
+/* ---------------------------------------------------------------------------
+   FFX-era menu skin (spec §5): deep-teal glass panels, thin gold trim, chunky
+   white type, hard bevels. No soft modern shadows, no rounded pill everything.
+--------------------------------------------------------------------------- */
+:root{
+  --teal:#0A3B4C; --teal2:#062A38; --gold:#E7C25C; --gold2:#8A6C1E;
+  --ink:#F7FBFF; --sea:#8CF0E4; --bad:#FF6B6B; --good:#9CFF7A;
+  --panel:linear-gradient(180deg, rgba(12,66,86,.90), rgba(5,30,42,.94));
+}
+*{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent}
+html,body{height:100%; overflow:hidden; background:#062A38}
+body{
+  font-family:"Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+  color:var(--ink); user-select:none; cursor:crosshair;
+}
+canvas#gl{position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none}
+canvas#overlay{position:fixed; inset:0; pointer-events:none; z-index:2}
+#hud{position:fixed; inset:0; z-index:3; pointer-events:none}
+#hud button{pointer-events:auto}
+
+.panel{
+  background:var(--panel);
+  border:1px solid var(--gold2);
+  box-shadow:inset 0 0 0 1px rgba(231,194,92,.28), inset 0 2px 0 rgba(255,255,255,.10),
+             0 4px 0 rgba(0,0,0,.35);
+  backdrop-filter:blur(2px);
+}
+.label{font-size:10px; letter-spacing:.16em; color:var(--gold); font-weight:700; text-transform:uppercase}
+.big{font-weight:900; letter-spacing:.02em; text-shadow:0 2px 0 rgba(0,0,0,.55)}
+
+/* --- top-left: tide + quota --- */
+#tidebox{position:absolute; top:12px; left:12px; padding:9px 14px 11px; min-width:212px}
+#tidebox .row{display:flex; align-items:baseline; gap:8px}
+#hud-tide{font-size:34px; line-height:1; font-weight:900; color:var(--ink); text-shadow:0 2px 0 #06202b}
+.track{position:relative; height:11px; margin-top:7px; background:rgba(0,0,0,.42);
+       border:1px solid rgba(231,194,92,.42); overflow:hidden}
+.track > i{position:absolute; inset:0 auto 0 0; width:0%; display:block;
+           background:linear-gradient(180deg,#8CF0E4,#149FB4); transition:width .12s linear}
+#hud-quota-text{position:absolute; inset:0; display:grid; place-items:center;
+                font-size:9px; font-weight:900; letter-spacing:.1em; text-shadow:0 1px 0 rgba(0,0,0,.7)}
+
+/* --- top-right: purse --- */
+#purse{position:absolute; top:12px; right:12px; padding:9px 13px; display:flex; gap:16px}
+#purse .stat{text-align:right; min-width:56px}
+#purse .v{font-size:19px; font-weight:900; line-height:1.05}
+.v.gold{color:var(--gold)} .v.pearl{color:#DFF6FF} .v.kill{color:var(--sea)}
+
+/* --- announcement ticker (the source study keeps these loud and coloured, §4) --- */
+#ann{position:absolute; top:84px; left:50%; transform:translate(-50%,-8px);
+     font-size:19px; font-weight:900; letter-spacing:.06em; text-align:center;
+     padding:7px 20px; opacity:0; transition:opacity .18s, transform .18s;
+     background:linear-gradient(180deg, rgba(6,42,56,.86), rgba(4,24,34,.86));
+     border-top:1px solid rgba(231,194,92,.5); border-bottom:1px solid rgba(231,194,92,.5);
+     text-shadow:0 2px 0 rgba(0,0,0,.6); white-space:nowrap; max-width:92vw; overflow:hidden}
+#ann.show{opacity:1; transform:translate(-50%,0)}
+
+/* --- bottom-left: the castaway --- */
+#herobox{position:absolute; left:12px; bottom:12px; padding:9px 13px 11px; width:262px}
+#hud-hp-track{position:relative; height:17px; margin-top:6px; background:rgba(0,0,0,.5);
+              border:1px solid rgba(231,194,92,.42); overflow:hidden}
+#hud-hp-bar{position:absolute; inset:0 auto 0 0; width:100%;
+            background:linear-gradient(180deg,#7BE88A,#2E9E4A); transition:width .12s linear}
+#hud-hp-text{position:absolute; inset:0; display:grid; place-items:center;
+             font-size:11px; font-weight:900; letter-spacing:.06em; text-shadow:0 1px 0 rgba(0,0,0,.75)}
+
+/* --- bottom-centre: QWER smart-cast bar (D3). Empty until link 2. --- */
+#bar{position:absolute; left:50%; transform:translateX(-50%); bottom:12px; display:flex; gap:7px}
+.slot{width:56px; height:56px; display:grid; place-items:center; position:relative;
+      background:linear-gradient(180deg, rgba(10,58,76,.85), rgba(4,24,34,.9));
+      border:1px solid var(--gold2); box-shadow:inset 0 0 0 1px rgba(231,194,92,.22)}
+.slot b{position:absolute; top:2px; left:5px; font-size:10px; color:var(--gold); letter-spacing:.08em}
+.slot span{font-size:20px; opacity:.30}
+.slot.big{width:64px; height:64px; border-color:var(--gold)}
+.slot.poke{animation:poke .18s ease-out}
+@keyframes poke{from{transform:translateY(0)} 50%{transform:translateY(-5px)} to{transform:translateY(0)}}
+#barnote{position:absolute; left:50%; transform:translateX(-50%); bottom:76px;
+         font-size:10px; letter-spacing:.14em; color:rgba(231,194,92,.72); font-weight:700; white-space:nowrap}
+
+/* --- centre: shop break --- */
+#break-panel,#down-panel{position:absolute; left:50%; top:50%; transform:translate(-50%,-46%) scale(.97);
+  padding:22px 30px 20px; text-align:center; min-width:352px; opacity:0; pointer-events:none;
+  transition:opacity .2s, transform .2s}
+#break-panel.show,#down-panel.show{opacity:1; transform:translate(-50%,-50%) scale(1)}
+#break-timer{font-size:60px; font-weight:900; line-height:1; color:var(--gold); text-shadow:0 3px 0 #06202b}
+#break-next{font-size:12px; letter-spacing:.1em; margin-top:8px; color:var(--sea); font-weight:700}
+#shop-stub{margin:15px 0 4px; padding:11px 14px; border:1px dashed rgba(231,194,92,.42);
+           background:rgba(0,0,0,.25); font-size:11px; letter-spacing:.09em; color:rgba(247,251,255,.72)}
+button.btn{margin-top:12px; font:900 15px/1 "Trebuchet MS", system-ui, sans-serif; letter-spacing:.12em;
+  color:#06202b; padding:12px 26px; cursor:pointer; border:1px solid #F0DFA0;
+  background:linear-gradient(180deg,#F6DE95,#C79E30); box-shadow:0 4px 0 #6E5415, inset 0 1px 0 rgba(255,255,255,.6)}
+button.btn:active{transform:translateY(3px); box-shadow:0 1px 0 #6E5415, inset 0 1px 0 rgba(255,255,255,.6)}
+#down-panel{border-color:#8A2E2E; box-shadow:inset 0 0 0 1px rgba(255,107,107,.35), 0 4px 0 rgba(0,0,0,.35)}
+#down-text{font-size:26px; font-weight:900; color:var(--bad); letter-spacing:.05em}
+#down-sub{font-size:12px; letter-spacing:.1em; margin-top:8px; color:rgba(247,251,255,.8)}
+
+/* --- bottom-right: build stamp + seed --- */
+#stamp{position:absolute; right:12px; bottom:12px; text-align:right; font-size:10px;
+       letter-spacing:.1em; color:rgba(231,194,92,.62); font-weight:700; line-height:1.7}
+#stamp b{color:rgba(140,240,228,.85); font-weight:900}
+
+#boot-error{position:fixed; inset:0; display:none; place-items:center; z-index:9; background:#062A38;
+            text-align:center; padding:30px; font-size:15px; line-height:1.7}
+#boot-error.show{display:grid}
+
+@media (max-width:760px){
+  #tidebox{min-width:168px} #hud-tide{font-size:26px}
+  #herobox{width:200px} .slot{width:46px;height:46px} .slot.big{width:52px;height:52px}
+  #ann{font-size:14px; top:74px}
+}
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+<canvas id="overlay"></canvas>
+
+<div id="hud">
+
+  <div id="tidebox" class="panel">
+    <div class="label" data-txt="TIDE">TIDE</div>
+    <div class="row">
+      <div id="hud-tide" data-notr>1</div>
+      <div class="label" style="opacity:.75" data-txt="ASHORE">ASHORE</div>
+    </div>
+    <div class="track"><i id="hud-quota-bar"></i><div id="hud-quota-text" data-notr>0 / 14</div></div>
+  </div>
+
+  <div id="purse" class="panel">
+    <div class="stat"><div class="label" data-txt="GOLD">GOLD</div><div class="v gold" id="hud-gold" data-notr>100</div></div>
+    <div class="stat"><div class="label" data-txt="PEARLS">PEARLS</div><div class="v pearl" id="hud-pearls" data-notr>3</div></div>
+    <div class="stat"><div class="label" data-txt="KILLS">KILLS</div><div class="v kill" id="hud-kills" data-notr>0</div></div>
+  </div>
+
+  <div id="ann"></div>
+
+  <div id="herobox" class="panel">
+    <div class="label" data-txt="THE CASTAWAY">THE CASTAWAY</div>
+    <div id="hud-hp-track"><i id="hud-hp-bar"></i><div id="hud-hp-text" data-notr>620 / 620</div></div>
+  </div>
+
+  <div id="barnote" data-txt="Q W E R  ·  SPELL SLOTS OPEN AT THE BOARDWALK">Q W E R · SPELL SLOTS OPEN AT THE BOARDWALK</div>
+  <div id="bar">
+    <div class="slot" id="slot-q"><b data-notr>Q</b><span>·</span></div>
+    <div class="slot" id="slot-w"><b data-notr>W</b><span>·</span></div>
+    <div class="slot" id="slot-e"><b data-notr>E</b><span>·</span></div>
+    <div class="slot big" id="slot-r"><b data-notr>R</b><span>·</span></div>
+  </div>
+
+  <div id="break-panel" class="panel">
+    <div class="label" data-txt="SHOP BREAK">SHOP BREAK</div>
+    <div id="break-timer" data-notr>25</div>
+    <div id="break-next" data-notr></div>
+    <div id="shop-stub" data-txt="THE BOARDWALK IS STILL BOARDING UP — RACKS, FRUIT STAND AND SURF SHACK OPEN SOON.">THE BOARDWALK IS STILL BOARDING UP — RACKS, FRUIT STAND AND SURF SHACK OPEN SOON.</div>
+    <button class="btn" id="break-skip" data-txt="CALL IT IN  ·  SPACE">CALL IT IN · SPACE</button>
+  </div>
+
+  <div id="down-panel" class="panel">
+    <div id="down-text" data-txt="WASHED OUT">WASHED OUT</div>
+    <div id="down-sub" data-txt="The sea drags this tide back. You wash ashore again with the next one.">The sea drags this tide back. You wash ashore again with the next one.</div>
+  </div>
+
+  <div id="stamp">
+    <div><span data-txt="SEED">SEED</span> <b id="seed-label" data-notr>—</b></div>
+    <div id="build-label" data-notr>—</div>
+  </div>
+
+</div>
+
+<div id="boot-error">
+  <div>
+    <div class="big" style="font-size:22px; color:#E7C25C" data-txt="THE ISLAND WOULD NOT LOAD">THE ISLAND WOULD NOT LOAD</div>
+    <div style="margin-top:12px; opacity:.8" data-txt="This build needs WebGL 2. Try a desktop browser, or enable hardware acceleration.">This build needs WebGL 2. Try a desktop browser, or enable hardware acceleration.</div>
+    <div id="boot-error-detail" style="margin-top:14px; font-size:11px; opacity:.55; font-family:ui-monospace,monospace" data-notr></div>
+  </div>
+</div>
+
+<script>window.__RESORT_BUILD='20260727201519';</script>
+<script type="importmap">
+{
+  "imports": {
+    "three":        "./vendor/three.module.min.js?v=20260727201519",
+    "./js/i18n.js": "./js/i18n.js?v=20260727201519",
+    "./js/rng.js":  "./js/rng.js?v=20260727201519",
+    "./js/sim.js":  "./js/sim.js?v=20260727201519",
+    "./js/scene.js":"./js/scene.js?v=20260727201519"
+  }
+}
+</script>
+<script type="module">
+  // One door in. Any boot failure lands on a readable screen instead of a
+  // blank blue rectangle and a console nobody opens.
+  window.addEventListener('error', e => {
+    const d = document.getElementById('boot-error-detail');
+    if (d && !d.textContent) d.textContent = String((e && e.message) || e);
+    document.getElementById('boot-error').classList.add('show');
+  });
+  import('./js/game.js?v=20260727201519').catch(err => {
+    document.getElementById('boot-error-detail').textContent = String(err && err.message || err);
+    document.getElementById('boot-error').classList.add('show');
+  });
+</script>
+</body>
+</html>
