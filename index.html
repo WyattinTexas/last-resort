@@ -108,6 +108,107 @@ button.btn:active{transform:translateY(3px); box-shadow:0 1px 0 #6E5415, inset 0
        letter-spacing:.1em; color:rgba(231,194,92,.62); font-weight:700; line-height:1.7}
 #stamp b{color:rgba(140,240,228,.85); font-weight:900}
 
+/* --- hero level strip (link 2) --- */
+#hud-lvrow{display:flex; align-items:center; gap:8px; margin-top:7px}
+#hud-lv{font-size:12px; font-weight:900; color:var(--gold); letter-spacing:.06em; white-space:nowrap}
+#hud-xp-track{position:relative; flex:1; height:7px; background:rgba(0,0,0,.5);
+              border:1px solid rgba(231,194,92,.35); overflow:hidden}
+#hud-xp-bar{position:absolute; inset:0 auto 0 0; width:0%;
+            background:linear-gradient(180deg,#F6DE95,#C79E30)}
+#hud-pts{font-size:10px; font-weight:900; color:#06202b; background:linear-gradient(180deg,#F6DE95,#C79E30);
+         padding:2px 7px; letter-spacing:.08em; display:none; cursor:pointer; pointer-events:auto;
+         box-shadow:0 2px 0 #6E5415; animation:ptsPulse 1.6s infinite}
+@keyframes ptsPulse{0%,100%{filter:brightness(1)} 50%{filter:brightness(1.35)}}
+
+/* --- QWER cooldown dressing --- */
+.slot .ico{font-size:22px; opacity:1; line-height:1}
+.slot .cd{position:absolute; left:0; right:0; bottom:0; height:0%; background:rgba(4,20,28,.78); pointer-events:none}
+.slot .cdt{position:absolute; inset:0; display:grid; place-items:center; font-style:normal;
+           font-size:15px; font-weight:900; color:#FFF; text-shadow:0 1px 0 #000; pointer-events:none}
+.slot .tag{position:absolute; bottom:2px; left:0; right:0; text-align:center; font-size:7px;
+           letter-spacing:.08em; color:rgba(247,251,255,.75); font-weight:700; pointer-events:none}
+.slot.ready{border-color:var(--gold)}
+.slot.ready .ico{filter:drop-shadow(0 0 4px rgba(231,194,92,.6))}
+
+/* --- item slots (bottom-right, above the stamp) --- */
+#items{position:absolute; right:12px; bottom:58px; display:flex; gap:5px; pointer-events:auto}
+.itemchip{width:42px; height:42px; display:grid; place-items:center; position:relative; cursor:pointer;
+          background:linear-gradient(180deg, rgba(10,58,76,.85), rgba(4,24,34,.9));
+          border:1px solid var(--gold2); font-size:18px}
+.itemchip b{position:absolute; top:1px; left:3px; font-size:8px; color:rgba(231,194,92,.8)}
+.itemchip.empty{opacity:.35}
+.itemchip.potion{border-color:#7AC8FF}
+
+/* --- the shop sheet (racks / fruit stand / surf shack) --- */
+#sheet{position:absolute; left:50%; transform:translateX(-50%); bottom:88px;
+       width:min(600px, 94vw); max-height:52vh; display:none; flex-direction:column; z-index:4}
+#sheet.show{display:flex}
+#sheet-head{display:flex; align-items:baseline; gap:10px; padding:10px 14px 8px;
+            border-bottom:1px solid rgba(231,194,92,.4)}
+#sheet-title{font-size:15px; font-weight:900; letter-spacing:.1em}
+#sheet-sub{font-size:10px; letter-spacing:.1em; color:var(--sea); font-weight:700; margin-left:auto}
+#sheet-rows{overflow-y:auto; padding:4px 8px 8px}
+.srow{display:flex; align-items:center; gap:10px; padding:8px 6px; border-bottom:1px solid rgba(231,194,92,.14)}
+.srow:last-child{border-bottom:0}
+.srow .sico{font-size:22px; width:30px; text-align:center; flex:none}
+.srow .smeta{flex:1; min-width:0}
+.srow .sname{font-size:12px; font-weight:900; letter-spacing:.06em}
+.srow .sdesc{font-size:10px; color:rgba(247,251,255,.78); letter-spacing:.03em; margin-top:2px; line-height:1.45}
+.srow.locked .sico,.srow.locked .smeta{opacity:.45}
+.tchip{display:inline-block; font-size:8px; font-weight:900; letter-spacing:.08em; padding:1px 5px;
+       margin-left:6px; vertical-align:1px; border:1px solid rgba(231,194,92,.5); color:var(--gold)}
+.tchip.big{background:rgba(231,194,92,.18)}
+button.sbtn{font:900 10px/1 "Trebuchet MS", system-ui, sans-serif; letter-spacing:.08em; flex:none;
+  color:#06202b; padding:8px 11px; cursor:pointer; border:1px solid #F0DFA0;
+  background:linear-gradient(180deg,#F6DE95,#C79E30); box-shadow:0 3px 0 #6E5415; white-space:nowrap}
+button.sbtn:active{transform:translateY(2px); box-shadow:0 1px 0 #6E5415}
+button.sbtn:disabled{filter:grayscale(.8) brightness(.75); cursor:default; box-shadow:0 3px 0 #333}
+button.sbtn.blue{background:linear-gradient(180deg,#9FDCFF,#3E8EC4); border-color:#C8ECFF; box-shadow:0 3px 0 #1E4A6E}
+.slotchips{display:flex; gap:3px; flex:none}
+.slotchip{width:22px; height:22px; display:grid; place-items:center; cursor:pointer; font-size:10px; font-weight:900;
+          border:1px solid rgba(231,194,92,.4); color:rgba(247,251,255,.7); background:rgba(0,0,0,.3)}
+.slotchip.on{background:linear-gradient(180deg,#F6DE95,#C79E30); color:#06202b; border-color:#F0DFA0}
+#sheet-foot{display:flex; align-items:center; gap:10px; padding:8px 14px;
+            border-top:1px solid rgba(231,194,92,.4); font-size:10px; letter-spacing:.08em}
+#sheet-foot .bal{font-weight:900; color:var(--gold)}
+#sheet-foot .balp{font-weight:900; color:#DFF6FF}
+
+/* --- the Forge + Victory overlays --- */
+#forge,#victory{position:fixed; inset:0; z-index:6; display:none; place-items:center;
+                background:radial-gradient(ellipse at 50% 38%, rgba(10,59,76,.62), rgba(4,18,26,.88))}
+#forge.show,#victory.show{display:grid}
+#forge-inner,#victory-inner{text-align:center; padding:26px 30px; max-width:min(860px,94vw)}
+.ftitle{font-size:30px; font-weight:900; letter-spacing:.14em; color:var(--gold); text-shadow:0 3px 0 #06202b}
+.fsub{font-size:11px; letter-spacing:.12em; color:var(--sea); font-weight:700; margin-top:6px}
+#forge-cards{display:flex; gap:14px; justify-content:center; margin-top:20px; flex-wrap:wrap}
+.bodycard{width:218px; padding:16px 14px 14px; text-align:center; cursor:pointer; transition:transform .12s}
+.bodycard:hover{transform:translateY(-4px)}
+.bodycard .bico{font-size:44px; line-height:1.2}
+.bodycard .bname{font-size:13px; font-weight:900; letter-spacing:.08em; margin-top:6px}
+.bodycard .barch{font-size:9px; letter-spacing:.18em; color:var(--sea); font-weight:900; margin-top:2px}
+.bodycard .bflav{font-size:10px; color:rgba(247,251,255,.75); margin-top:8px; line-height:1.5; min-height:42px}
+.bodycard .bstats{font-size:10px; margin-top:8px; line-height:1.7; color:rgba(247,251,255,.9)}
+.bodycard .binnate{font-size:9.5px; margin-top:8px; padding:7px 8px; background:rgba(0,0,0,.28);
+                   border:1px dashed rgba(231,194,92,.4); line-height:1.5}
+.bodycard .binnate b{color:var(--gold)}
+#victory-stats{display:grid; grid-template-columns:repeat(3,minmax(120px,1fr)); gap:10px; margin:18px 0 6px}
+.vstat{padding:10px 8px}
+.vstat .vv{font-size:22px; font-weight:900; color:var(--gold)}
+.vstat .vl{font-size:9px; letter-spacing:.14em; color:var(--sea); font-weight:700; margin-top:3px}
+#victory-build{font-size:11px; color:rgba(247,251,255,.85); margin-top:10px; line-height:1.7}
+
+/* --- the castaway sheet (C) --- */
+#castaway{position:absolute; right:12px; top:74px; width:min(320px,92vw); max-height:70vh; display:none;
+          flex-direction:column; z-index:4}
+#castaway.show{display:flex}
+#castaway .chead{display:flex; align-items:baseline; padding:10px 14px 8px; gap:8px;
+                 border-bottom:1px solid rgba(231,194,92,.4)}
+#castaway .cbody{overflow-y:auto; padding:8px 12px 12px; font-size:11px}
+.cstats{display:grid; grid-template-columns:1fr 1fr; gap:3px 14px; margin:6px 0 4px; font-size:10.5px}
+.cstats div{display:flex; justify-content:space-between}
+.cstats b{color:var(--gold)}
+.csec{font-size:9px; letter-spacing:.16em; color:var(--sea); font-weight:900; margin:10px 0 4px}
+
 #boot-error{position:fixed; inset:0; display:none; place-items:center; z-index:9; background:#062A38;
             text-align:center; padding:30px; font-size:15px; line-height:1.7}
 #boot-error.show{display:grid}
@@ -144,23 +245,52 @@ button.btn:active{transform:translateY(3px); box-shadow:0 1px 0 #6E5415, inset 0
   <div id="ann"></div>
 
   <div id="herobox" class="panel">
-    <div class="label" data-txt="THE CASTAWAY">THE CASTAWAY</div>
+    <div class="label" id="hud-body" data-txt="THE CASTAWAY">THE CASTAWAY</div>
     <div id="hud-hp-track"><i id="hud-hp-bar"></i><div id="hud-hp-text" data-notr>620 / 620</div></div>
+    <div id="hud-lvrow">
+      <div id="hud-lv" data-notr>LV 1</div>
+      <div id="hud-xp-track"><i id="hud-xp-bar"></i></div>
+      <div id="hud-pts" data-notr>+1</div>
+    </div>
   </div>
+
+  <div id="items"></div>
 
   <div id="barnote" data-txt="Q W E R  ·  SPELL SLOTS OPEN AT THE BOARDWALK">Q W E R · SPELL SLOTS OPEN AT THE BOARDWALK</div>
   <div id="bar">
-    <div class="slot" id="slot-q"><b data-notr>Q</b><span>·</span></div>
-    <div class="slot" id="slot-w"><b data-notr>W</b><span>·</span></div>
-    <div class="slot" id="slot-e"><b data-notr>E</b><span>·</span></div>
-    <div class="slot big" id="slot-r"><b data-notr>R</b><span>·</span></div>
+    <div class="slot" id="slot-q"><b data-notr>Q</b><span class="ico" data-notr>·</span><i class="cd"></i><em class="cdt" data-notr></em><div class="tag" data-notr></div></div>
+    <div class="slot" id="slot-w"><b data-notr>W</b><span class="ico" data-notr>·</span><i class="cd"></i><em class="cdt" data-notr></em><div class="tag" data-notr></div></div>
+    <div class="slot" id="slot-e"><b data-notr>E</b><span class="ico" data-notr>·</span><i class="cd"></i><em class="cdt" data-notr></em><div class="tag" data-notr></div></div>
+    <div class="slot big" id="slot-r"><b data-notr>R</b><span class="ico" data-notr>·</span><i class="cd"></i><em class="cdt" data-notr></em><div class="tag" data-notr></div></div>
+  </div>
+
+  <div id="sheet" class="panel">
+    <div id="sheet-head">
+      <div id="sheet-title" data-notr>—</div>
+      <div id="sheet-sub" data-notr></div>
+    </div>
+    <div id="sheet-rows"></div>
+    <div id="sheet-foot">
+      <span><span data-txt="GOLD">GOLD</span> <span class="bal" id="sheet-gold" data-notr>0</span></span>
+      <span><span data-txt="PEARLS">PEARLS</span> <span class="balp" id="sheet-pearls" data-notr>0</span></span>
+      <span style="margin-left:auto"></span>
+      <button class="sbtn blue" id="sheet-respec"></button>
+    </div>
+  </div>
+
+  <div id="castaway" class="panel">
+    <div class="chead">
+      <div id="castaway-title" class="big" style="font-size:14px" data-notr>—</div>
+      <div style="margin-left:auto; font-size:9px; letter-spacing:.12em; color:rgba(231,194,92,.7)" data-txt="C CLOSES">C CLOSES</div>
+    </div>
+    <div class="cbody" id="castaway-body"></div>
   </div>
 
   <div id="break-panel" class="panel">
     <div class="label" data-txt="SHOP BREAK">SHOP BREAK</div>
     <div id="break-timer" data-notr>25</div>
     <div id="break-next" data-notr></div>
-    <div id="shop-stub" data-txt="THE BOARDWALK IS STILL BOARDING UP — RACKS, FRUIT STAND AND SURF SHACK OPEN SOON.">THE BOARDWALK IS STILL BOARDING UP — RACKS, FRUIT STAND AND SURF SHACK OPEN SOON.</div>
+    <div id="shop-stub" data-txt="THE BOARDWALK IS OPEN — WALK TO A STALL. THE TIDE WAITS WHILE YOU HAGGLE.">THE BOARDWALK IS OPEN — WALK TO A STALL. THE TIDE WAITS WHILE YOU HAGGLE.</div>
     <button class="btn" id="break-skip" data-txt="CALL IT IN  ·  SPACE">CALL IT IN · SPACE</button>
   </div>
 
@@ -176,6 +306,24 @@ button.btn:active{transform:translateY(3px); box-shadow:0 1px 0 #6E5415, inset 0
 
 </div>
 
+<div id="forge">
+  <div id="forge-inner">
+    <div class="ftitle" data-txt="THE FORGE">THE FORGE</div>
+    <div class="fsub" data-txt="PICK A BODY. THE SEA SENDS THE REST.">PICK A BODY. THE SEA SENDS THE REST.</div>
+    <div id="forge-cards"></div>
+  </div>
+</div>
+
+<div id="victory">
+  <div id="victory-inner" class="panel" style="padding:26px 34px">
+    <div class="ftitle" data-txt="THE ISLAND RESPECTS YOU">THE ISLAND RESPECTS YOU</div>
+    <div class="fsub" data-txt="TEN TIDES BROKEN. THE SEA WILL REMEMBER THIS.">TEN TIDES BROKEN. THE SEA WILL REMEMBER THIS.</div>
+    <div id="victory-stats"></div>
+    <div id="victory-build" data-notr></div>
+    <button class="btn" id="victory-again" data-txt="BACK TO THE FORGE">BACK TO THE FORGE</button>
+  </div>
+</div>
+
 <div id="boot-error">
   <div>
     <div class="big" style="font-size:22px; color:#E7C25C" data-txt="THE ISLAND WOULD NOT LOAD">THE ISLAND WOULD NOT LOAD</div>
@@ -184,15 +332,17 @@ button.btn:active{transform:translateY(3px); box-shadow:0 1px 0 #6E5415, inset 0
   </div>
 </div>
 
-<script>window.__RESORT_BUILD='20260727201519';</script>
+<script>window.__RESORT_BUILD='20260727210854';</script>
 <script type="importmap">
 {
   "imports": {
-    "three":        "./vendor/three.module.min.js?v=20260727201519",
-    "./js/i18n.js": "./js/i18n.js?v=20260727201519",
-    "./js/rng.js":  "./js/rng.js?v=20260727201519",
-    "./js/sim.js":  "./js/sim.js?v=20260727201519",
-    "./js/scene.js":"./js/scene.js?v=20260727201519"
+    "three":        "./vendor/three.module.min.js?v=20260727210854",
+    "./js/i18n.js": "./js/i18n.js?v=20260727210854",
+    "./js/rng.js":  "./js/rng.js?v=20260727210854",
+    "./js/data.js": "./js/data.js?v=20260727210854",
+    "./js/sim.js":  "./js/sim.js?v=20260727210854",
+    "./js/scene.js":"./js/scene.js?v=20260727210854",
+    "./js/shop.js": "./js/shop.js?v=20260727210854"
   }
 }
 </script>
@@ -204,7 +354,7 @@ button.btn:active{transform:translateY(3px); box-shadow:0 1px 0 #6E5415, inset 0
     if (d && !d.textContent) d.textContent = String((e && e.message) || e);
     document.getElementById('boot-error').classList.add('show');
   });
-  import('./js/game.js?v=20260727201519').catch(err => {
+  import('./js/game.js?v=20260727210854').catch(err => {
     document.getElementById('boot-error-detail').textContent = String(err && err.message || err);
     document.getElementById('boot-error').classList.add('show');
   });

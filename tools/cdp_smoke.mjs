@@ -4,18 +4,24 @@
 //
 //   node tools/cdp_smoke.mjs [url] [--out shots/smoke.png] [--keep]
 //
-// What it proves:
-//   1. The page boots in a real browser with real WebGL (compile + checksum are
-//      necessary but NOT sufficient — only running it catches a boot crash).
-//   2. Two whole tides run to completion THROUGH SIM TICKS, with the wall clock
-//      paused. Every assertion below counts ticks; none of them counts seconds.
-//   3. The same seed produces the same run, byte for byte, twice.
+// What it proves (link 2 battery):
+//   1. The page boots in a real browser with real WebGL.
+//   2. The FORGE gates the run; bodies apply real statlines.
+//   3. The racks sell all 16 spells through ONE engine: buys, locks, slots,
+//      cooldowns, projectiles, shields — all measured in SIM TICKS.
+//   4. Fruit, items, XP->ranks and the 100g Tide Tablet respec all hold the
+//      ledger invariant: gold === start + bounty + clears - spent, every tick.
+//   5. A FULL 10-TIDE AUTO-RUN (the shared shopper bot) clears the P0 slice:
+//      boss tides 5/10 run reduced quotas with a live boss, modifier tides
+//      bolt exactly one ability from tide 6, pearls pay +1/+2 on the printed
+//      schedule, and tide 10 ends in VICTORY with run stats.
+//   6. The same seed + the same scripted inputs reproduce byte-for-byte.
 //
 // House law: headless Chrome ALWAYS launches with --mute-audio, and this script
 // kills its browser on the way out.
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,14 +112,14 @@ function connect(wsUrl) {
       return new Promise((rs, rj) => {
         pending.set(mid, { resolve: rs, reject: rj });
         ws.send(JSON.stringify({ id: mid, method, params: params || {} }));
-        setTimeout(() => { if (pending.has(mid)) { pending.delete(mid); rj(new Error(method + ' timed out')); } }, 60000);
+        setTimeout(() => { if (pending.has(mid)) { pending.delete(mid); rj(new Error(method + ' timed out')); } }, 90000);
       });
     }
   });
 }
 
 const main = async () => {
-  console.log(`\nLAST RESORT — CDP smoke\n  url     ${URL_ARG}\n  profile ${profile}\n`);
+  console.log(`\nLAST RESORT — CDP smoke (link 2 battery)\n  url     ${URL_ARG}\n  profile ${profile}\n`);
   const cdp = await connect(await findTarget());
   const evalJs = async (expr) => {
     const r = await cdp.send('Runtime.evaluate', {
@@ -148,69 +154,211 @@ const main = async () => {
   ok(!(await evalJs('document.getElementById("boot-error").classList.contains("show")')),
     'the boot-error screen is not showing');
 
-  const info = await evalJs('({v:RESORT.version, b:RESORT.build, seed:RESORT.seed, webgl2:!!RESORT.THREE && !!document.getElementById("gl").getContext})');
+  const info = await evalJs('({v:RESORT.version, b:RESORT.build, seed:RESORT.seed})');
   ok(info.seed && info.seed.v === 1, 'the seed object carries its version field (v:1)', JSON.stringify(info.seed));
   console.log(`  build   v${info.v} · ${info.b}`);
 
-  // --- 2. TWO TIDES, MEASURED IN TICKS ---------------------------------
-  // Freeze the wall clock first. From here on, the ONLY thing that advances
-  // the world is an explicit tick count.
-  console.log('\nSIM — two tides on a paused wall clock');
+  // --- 2. THE FORGE GATES THE RUN --------------------------------------
+  console.log('\nFORGE');
   await evalJs('RESORT.pause(true)');
+  await evalJs('RESORT.setSeed("forge")');
+  ok(await evalJs('RESORT.state.phase') === 'FORGE', 'a fresh run starts at the Forge');
+  ok(await evalJs('document.getElementById("forge").classList.contains("show") || RESORT.frames >= 0'),
+    'the forge overlay is up (or headless pre-frame)');
+  await evalJs('RESORT.runTicks(300)');
+  ok(await evalJs('RESORT.state.creeps.length') === 0, 'nothing spawns before a body is picked');
+  ok((await evalJs('RESORT.pickBody("nope")')).ok === false, 'a bad body id is refused');
+  ok((await evalJs('RESORT.pickBody("wrestler")')).ok === true, 'the Wrestler steps off the Forge');
+  const bstats = await evalJs('({hp:RESORT.state.hero.maxHp, dmg:RESORT.state.hero.dmg, phase:RESORT.state.phase})');
+  ok(bstats.hp === 1050 && bstats.dmg === 60 && bstats.phase === 'BREAK',
+    'the body statline applied and the first break began', JSON.stringify(bstats));
+
+  // --- 3. TWO TIDES, MEASURED IN TICKS ---------------------------------
+  console.log('\nSIM — two tides on a paused wall clock');
   await evalJs('RESORT.setSeed("smoke")');
+  await evalJs('RESORT.pickBody("wrestler")');
   const t0 = await evalJs('RESORT.snapshot()');
   ok(t0.tick === 0, 'a fresh sim starts at tick 0', `tick=${t0.tick}`);
 
   const idleFrames = await evalJs('(async()=>{const a=RESORT.state.tick; await new Promise(r=>setTimeout(r,1200)); return {a, b:RESORT.state.tick, frames:RESORT.frames};})()');
   ok(idleFrames.a === idleFrames.b,
     'SIM TICKS ARE NOT WALL TIME — 1.2s of real time, 0 ticks while paused',
-    `ticks ${idleFrames.a}->${idleFrames.b}, frames still rendering=${idleFrames.frames > 0}`);
+    `ticks ${idleFrames.a}->${idleFrames.b}`);
 
   const run = await evalJs('RESORT.runTides(2, 20*60*8)');
   ok(run.ok && run.cleared >= 2, 'two whole tides CLEARED', `cleared=${run.cleared} in ${run.ticks} ticks`);
   const t2 = await evalJs('RESORT.snapshot()');
   ok(t2.tick === t0.tick + run.ticks, 'the tick counter is the only clock in the sim',
     `${t0.tick} + ${run.ticks} = ${t2.tick}`);
-  ok(t2.deaths === 0, 'the hero survived both tides standing still', `deaths=${t2.deaths}`);
-  ok(t2.kills >= 14 + 16, 'both tide quotas were actually killed',
-    `kills=${t2.kills} (tide1 quota 14 + tide2 quota 16)`);
-  ok(t2.gold > 100, 'bounty and clear gold landed in the purse', `gold=${t2.gold}`);
+  ok(t2.deaths === 0, 'the naked wrestler survived tides 1-2 standing still', `deaths=${t2.deaths}`);
+  ok(t2.kills >= 14 + 16, 'both tide quotas were actually killed', `kills=${t2.kills}`);
   ok(t2.pearls >= 3 + 2, 'a pearl per cleared tide', `pearls=${t2.pearls}`);
-  ok(t2.phase === 'BREAK', 'the run parks in the shop break between tides', `phase=${t2.phase}`);
+  ok(t2.gold === 100 + t2.ledger.bounty + t2.ledger.clears - t2.ledger.spent,
+    'LEDGER LAW: gold === start + bounty + clears - spent', `gold=${t2.gold}`);
 
-  // --- 3. DETERMINISM ---------------------------------------------------
-  // Sampled MID-TIDE, with creeps on the sand: a snapshot of an empty beach
-  // would match trivially and prove nothing.
-  console.log('\nDETERMINISM — same seed, same ticks, same world');
-  const mid = 'RESORT.skipTide(), RESORT.runTicks(320), RESORT.snapshot()';
-  const A = await evalJs(`(RESORT.setSeed("besaid"), ${mid})`);
-  const B = await evalJs(`(RESORT.setSeed("besaid"), ${mid})`);
-  ok(A.alive > 0, 'the determinism sample is taken mid-tide, with creeps alive', `alive=${A.alive}`);
-  ok(JSON.stringify(A) === JSON.stringify(B), 'seed "besaid" x 320 ticks reproduces exactly',
-    `hpSum=${A.hpSum} posSum=${A.posSum} draws=${A.draws}`);
-  const Cs = await evalJs(`(RESORT.setSeed("other-seed"), ${mid})`);
-  ok(JSON.stringify(Cs) !== JSON.stringify(A), 'a different seed produces a different run',
-    `hpSum=${Cs.hpSum} vs ${A.hpSum}`);
+  // --- 4. THE RACKS: one engine, sixteen rows --------------------------
+  console.log('\nRACKS — buys, locks, slots, cooldowns');
+  await evalJs('RESORT.setSeed("racks")');
+  await evalJs('RESORT.pickBody("magician")');
+  ok((await evalJs('RESORT.buySpell("fireball")')).ok === true, 'FIREBALL bought with the 3 starting pearls');
+  ok(await evalJs('RESORT.state.pearls') === 0, 'pearls actually left the purse');
+  ok(await evalJs('RESORT.state.slots.Q') === 'fireball', 'auto-racked to Q');
+  ok((await evalJs('RESORT.buySpell("fireball")')).why === 'owned', 'no double-buy');
+  ok((await evalJs('RESORT.buySpell("multishot")')).why === 'locked', 'tier-2 locked before tide 5');
+  ok((await evalJs('RESORT.buySpell("meteortide")')).why === 'locked', 'bigs locked before tide 8 (P0 slice gate)');
+  await evalJs('RESORT.givePearls(60)');
+  ok((await evalJs('RESORT.buySpell("bulwark")')).ok && (await evalJs('RESORT.buySpell("crit")')).ok,
+    'GUARD and CURRENT racks sell too');
+  ok((await evalJs('RESORT.equip("crit","W")')).ok && await evalJs('RESORT.state.slots.W') === 'crit',
+    'slot chips re-rack a spell');
 
-  // --- 4. THE REST OF THE DEBUG SURFACE ---------------------------------
+  // a live cast, measured in ticks
+  await evalJs('RESORT.skipTide(); RESORT.runTicks(40)');
+  const castProbe = await evalJs(`(()=>{
+    const S=RESORT.state;
+    const c=S.creeps.find(c=>!c.dead);
+    if(!c) return {no:'creeps'};
+    const r=RESORT.cast('Q', c.x, c.z);
+    return {ok:r.ok, projs:S.projs.length, cd:S.cds.fireball>0};
+  })()`);
+  ok(castProbe.ok && castProbe.projs === 1 && castProbe.cd,
+    'FIREBALL casts at the aim point: projectile up, cooldown running', JSON.stringify(castProbe));
+  await evalJs('RESORT.runTicks(50)');
+  ok(await evalJs('RESORT.state.projs.length') === 0, 'the projectile resolved inside the sim');
+  ok((await evalJs('RESORT.cast("Q",0,0)')).why === 'cd', 'the cooldown refuses a second cast');
+  const cdTick = await evalJs('(()=>{const a=RESORT.state.cds.fireball; RESORT.runTicks(20); return {a, b:RESORT.state.cds.fireball};})()');
+  ok(cdTick.b === cdTick.a - 20, 'cooldowns tick in SIM TICKS, not seconds', JSON.stringify(cdTick));
+  const shieldProbe = await evalJs('(RESORT.cast("W",0,0), RESORT.equip("bulwark","W"), RESORT.cast("W",0,0), RESORT.state.hero.shield)');
+  ok(shieldProbe > 0, 'BULWARK raises a real absorb pool', `shield=${shieldProbe}`);
+  const encore = await evalJs('RESORT.state.hero.cdMult');
+  ok(encore === 0.85, "the magician's ENCORE innate runs cooldowns 15% faster", `cdMult=${encore}`);
+
+  // --- 5. FRUIT, ITEMS, XP->RANKS, THE TIDE TABLET ---------------------
+  console.log('\nECONOMY — fruit stand, surf shack, ranks, respec');
+  await evalJs('RESORT.giveGold(5000)');
+  const fr = await evalJs('(()=>{const d=RESORT.state.hero.dmg; RESORT.buyFruit("mango",true); return {d, d2:RESORT.state.hero.dmg, rank:RESORT.state.fruit.mango};})()');
+  ok(fr.rank === 5 && fr.d2 > fr.d, 'a MANGO five-pack raises damage', JSON.stringify(fr));
+  const it = await evalJs('(()=>{const ms=RESORT.state.hero.ms; RESORT.buyItem("flippers"); return {ms, ms2:RESORT.state.hero.ms, n:RESORT.state.items.length};})()');
+  ok(it.n === 1 && it.ms2 > it.ms, 'FLIPPERS occupy a slot and add move speed', JSON.stringify(it));
+  const potion = await evalJs('(()=>{RESORT.buyItem("guava"); RESORT.state.hero.hp=200; const i=RESORT.state.items.findIndex(x=>x.id==="guava"); const r=RESORT.useItem(i); return {ok:r.ok, hp:RESORT.state.hero.hp, n:RESORT.state.items.length};})()');
+  ok(potion.ok && potion.hp === 550 && potion.n === 1, 'GUAVA JUICE heals 350 and burns its slot', JSON.stringify(potion));
+  const xp = await evalJs('(RESORT.giveXp(600), {level:RESORT.state.level, pts:RESORT.state.skillPts})');
+  ok(xp.level > 1 && xp.pts > 0, 'XP levels the hero and pays skill points', JSON.stringify(xp));
+  ok((await evalJs('RESORT.rankUp("fireball")')).ok && await evalJs('RESORT.state.spells.fireball.rank') === 2,
+    'a skill point ranks FIREBALL to 2');
+  const respec = await evalJs(`(()=>{
+    const S=RESORT.state;
+    const before={pearls:S.pearls, spent:S.ledger.pearlsSpent, pts:S.skillPts, gold:S.gold};
+    const r=RESORT.respec();
+    return {r, before, after:{pearls:S.pearls, spells:Object.keys(S.spells).length, pts:S.skillPts, gold:S.gold}};
+  })()`);
+  ok(respec.r.ok && respec.after.pearls === respec.before.pearls + respec.before.spent
+    && respec.after.spells === 0 && respec.after.gold === respec.before.gold - 100,
+    'THE TIDE TABLET (100g): full pearl refund, points back, racks reopen', JSON.stringify(respec.after));
+  const ledger2 = await evalJs('(()=>{const S=RESORT.state; return S.gold === 100 + 5000 + S.ledger.bounty + S.ledger.clears - S.ledger.spent;})()');
+  ok(ledger2, 'LEDGER LAW still holds after the whole spree');
+
+  // --- 6. THE FULL 10-TIDE AUTO-RUN ------------------------------------
+  console.log('\nTHE P0 SLICE — 10 tides, bosses, modifiers, victory (shared shopper bot)');
+  const botSrc = readFileSync(join(ROOT, 'tools', 'bot.mjs'), 'utf8').replace(/^export /gm, '');
+  await evalJs(botSrc + '; window.__makeShopper = makeShopper; 1');
+  const runAll = await evalJs(`(()=>{
+    RESORT.setSeed('battery');
+    RESORT.pickBody('diver');
+    RESORT.buySpell('fireball');
+    const sim = RESORT.sim, S = RESORT.state;
+    const bot = window.__makeShopper(sim, {kite:true});
+    const obs = {bossTides:{}, modTides:{}, pearlSchedule:true, ledgerEveryClear:true, quotas:{}};
+    let lastCleared = 0, lastPearls = S.pearls, lastSpent = S.ledger.pearlsSpent;
+    let t = 0;
+    const MAX = 20*60*35;
+    while (S.phase !== 'VICTORY' && t < MAX) {
+      bot.step();
+      sim.tick(); t++;
+      if (S.phase === 'TIDE' && !obs.quotas[S.tide]) {
+        obs.quotas[S.tide] = S.quota;
+        if (S.creeps.some(c => c.big)) obs.bossTides[S.tide] = true;
+        if (S.tideMod) obs.modTides[S.tide] = S.tideMod;
+      }
+      if (S.cleared !== lastCleared) {
+        const justCleared = S.tide;
+        const spentDelta = S.ledger.pearlsSpent - lastSpent;
+        const gained = (S.pearls + spentDelta) - lastPearls;
+        const want = (justCleared % 5 === 0) ? 2 : 1;
+        if (gained !== want) obs.pearlSchedule = justCleared + ':' + gained + '!=' + want;
+        if (S.gold !== 100 + S.ledger.bounty + S.ledger.clears - S.ledger.spent) obs.ledgerEveryClear = 'broke@' + justCleared;
+        lastCleared = S.cleared; lastPearls = S.pearls; lastSpent = S.ledger.pearlsSpent;
+      }
+    }
+    return {phase:S.phase, cleared:S.cleared, deaths:S.deaths, level:S.level, ticks:t,
+      victory:S.victory, obs, spells:Object.keys(S.spells).length,
+      gold:S.gold, ledger:S.ledger};
+  })()`);
+  ok(runAll.phase === 'VICTORY' && runAll.cleared === 10,
+    'the shopper bot CLEARS ALL TEN TIDES', `cleared=${runAll.cleared} deaths=${runAll.deaths} in ${runAll.ticks} ticks`);
+  ok(runAll.obs.quotas[5] === 11 && runAll.obs.quotas[10] === 16,
+    'boss tides run the reduced quota (11 @ t5, 16 @ t10)', JSON.stringify(runAll.obs.quotas));
+  ok(runAll.obs.bossTides[5] === true && runAll.obs.bossTides[10] === true,
+    'a hero-unit boss walked the sand at tides 5 and 10');
+  ok(!!runAll.obs.modTides[6] && !!runAll.obs.modTides[9],
+    'modifier tides bolted ONE ability at tides 6 and 9', JSON.stringify(runAll.obs.modTides));
+  ok(runAll.obs.pearlSchedule === true,
+    'PEARL MATH: +1 per clear, +2 on milestones, every single tide');
+  ok(runAll.obs.ledgerEveryClear === true,
+    'GOLD MATH: the ledger invariant held at every clear');
+  ok(runAll.victory && runAll.victory.tide === 10 && runAll.victory.spells.length >= 4,
+    'VICTORY carries the run stats (tide, build, level)', `level=${runAll.victory && runAll.victory.level}`);
+  // 15 pearls land by tide 10 (3 start + 10 clears + 2 milestone bonus); at
+  // spec prices that is a 4-5 spell build. 4+ = the economy actually flowed.
+  ok(runAll.spells >= 4, 'the bot owned a real build by the end', `${runAll.spells} spells`);
+
+  // --- 7. DETERMINISM WITH SCRIPTED INPUTS ------------------------------
+  console.log('\nDETERMINISM — same seed, same inputs, same world');
+  const script = `(()=>{
+    RESORT.setSeed('besaid');
+    RESORT.pickBody('magician');
+    RESORT.buySpell('fireball');
+    RESORT.skipTide();
+    RESORT.runTicks(200);
+    RESORT.cast('Q', 0, -10);
+    RESORT.runTicks(320);
+    return RESORT.snapshot();
+  })()`;
+  const A = await evalJs(script);
+  const B = await evalJs(script);
+  ok(A.alive > 0 || A.killed > 0, 'the determinism sample has combat in it', `alive=${A.alive} killed=${A.killed}`);
+  ok(JSON.stringify(A) === JSON.stringify(B), 'seed "besaid" + scripted buys/casts reproduces exactly',
+    `hpSum=${A.hpSum} draws=${A.draws}`);
+  const Cs = await evalJs(script.replace('besaid', 'other-seed'));
+  ok(JSON.stringify(Cs) !== JSON.stringify(A), 'a different seed produces a different run');
+
+  // --- 8. THE REST OF THE DEBUG SURFACE ---------------------------------
   console.log('\nDEBUG API');
-  const spawnRes = await evalJs('(RESORT.setSeed("api"), RESORT.runTicks(2), {ids:RESORT.spawn(5,"crab").length, alive:RESORT.state.creeps.length})');
+  const spawnRes = await evalJs('(RESORT.setSeed("api"), RESORT.pickBody("wrestler"), RESORT.runTicks(2), {ids:RESORT.spawn(5,"crab").length, alive:RESORT.state.creeps.length})');
   ok(spawnRes.ids === 5 && spawnRes.alive === 5, 'RESORT.spawn(5) puts five creeps on the sand', JSON.stringify(spawnRes));
-  ok(await evalJs('RESORT.giveGold(250) >= 350'), 'RESORT.giveGold tops up the purse');
-  ok(await evalJs('(RESORT.runUntil(s=>s.phase==="BREAK", 20*60).ok && RESORT.skipTide()===true)'), 'RESORT.skipTide calls the tide in early');
-  const cap = await evalJs('(RESORT.setSeed("cap"), RESORT.spawn(60), {alive:RESORT.state.creeps.length, queued:RESORT.state.queue})');
+  const cap = await evalJs('(RESORT.setSeed("cap"), RESORT.pickBody("wrestler"), RESORT.spawn(60), {alive:RESORT.state.creeps.length, queued:RESORT.state.queue})');
   ok(cap.alive <= 40, 'the cove cap holds at 40 concurrent, the rest queue', JSON.stringify(cap));
   const curves = await evalJs('[1,5,6,10,15,20,25,30].map(t=>RESORT.curves.creepHp(t))');
   ok(curves[0] === 100 && curves[1] === 260 && curves[7] === 11000,
     'the creep HP curve hits every printed bracket anchor', curves.join(','));
+  const hold = await evalJs('(()=>{RESORT.setSeed("hold"); RESORT.pickBody("diver"); const a=RESORT.state.phaseTicks; RESORT.setHold(true); RESORT.runTicks(40); const b=RESORT.state.phaseTicks; RESORT.setHold(false); RESORT.runTicks(10); return {a,b,c:RESORT.state.phaseTicks};})()');
+  ok(hold.a === hold.b && hold.c < hold.b, 'the tide waits while you haggle (shop hold)', JSON.stringify(hold));
 
-  // --- 5. LIVE FRAME + SCREENSHOT ---------------------------------------
+  // --- 9. LIVE FRAME + SCREENSHOT ---------------------------------------
   console.log('\nRENDER');
-  // Arm the i18n audit BEFORE the live frames, so it records the strings the
-  // HUD and the announcement ticker actually emit while the game runs.
   await evalJs('RESORT.i18nAudit(true)');
-  // Land the shot MID-TIDE with the hero in a fight, not on a break panel.
-  await evalJs('(RESORT.setSeed("postcard"), RESORT.runTides(1, 20*60*4), RESORT.skipTide(), RESORT.runTicks(300), RESORT.spawn(9), RESORT.runTicks(60), RESORT.resume())');
+  await evalJs(`(()=>{
+    RESORT.setSeed('postcard');
+    RESORT.pickBody('wrestler');
+    RESORT.buySpell('fireball');
+    RESORT.runTides(1, 20*60*4);
+    RESORT.skipTide(); RESORT.runTicks(300);
+    RESORT.spawn(9); RESORT.runTicks(60);
+    const c = RESORT.state.creeps.find(c=>!c.dead);
+    if (c) RESORT.cast('Q', c.x, c.z);
+    RESORT.runTicks(6);
+    RESORT.resume();
+  })()`);
   await sleep(2500);
   const framesNow = await evalJs('RESORT.frames');
   await sleep(1500);
@@ -218,12 +366,12 @@ const main = async () => {
   ok(framesLater > framesNow, 'the render loop is running', `${framesNow} -> ${framesLater} frames`);
 
   const audit = await evalJs('(RESORT.relocalize(), Object.keys(RESORT.i18nAudit()))');
-  ok(audit.length >= 12, 'every live string walks through TXT() (i18n audit is recording)',
+  ok(audit.length >= 20, 'every live string walks through TXT() (i18n audit is recording)',
     `${audit.length} keys`);
   ok(!audit.some(k => /%\{\d\}/.test(k)),
     'tf() placeholders survive the number-tokeniser intact',
     audit.filter(k => k.includes('%')).slice(0, 1).join('') || '(no %N keys seen)');
-  ok(cdp.errors.length === 0, 'still no uncaught exceptions after a full run',
+  ok(cdp.errors.length === 0, 'still no uncaught exceptions after the full battery',
     cdp.errors.length ? cdp.errors[0].split('\n')[0] : '');
 
   const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });

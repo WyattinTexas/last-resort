@@ -11,6 +11,7 @@
 //   oversaturated postcard palette; classic-RTS tilted top-down camera (~55 deg)
 
 import * as THREE from 'three';
+import { STALLS } from './data.js';
 
 // ---------------------------------------------------------------------------
 // ONE PALETTE. Every material in the game picks from this list and nothing
@@ -270,12 +271,17 @@ export function createScene(canvas, COVE) {
     scene.add(m);
     rings.push({ m, t: 0, live: false });
   }
-  function popFoamRing(x, z) {
+  // One pool, many jobs: surf foam, spell bursts, cast flashes. Colour and
+  // final size ride along per pop.
+  function popRing(x, z, color, size) {
     const r = rings.find(r => !r.live) || rings[0];
     r.live = true; r.t = 0;
+    r.size = size || 1;
     r.m.visible = true;
+    r.m.material.color.set(color === undefined ? 0xFFFFFF : color);
     r.m.position.set(x, 0.07, z);
   }
+  function popFoamRing(x, z) { popRing(x, z, 0xFFFFFF, 1); }
 
   // -------------------------------------------------------------------------
   // SET DRESSING — rope-post fences, palms, rocks, cliffs, a beached rowboat,
@@ -286,7 +292,18 @@ export function createScene(canvas, COVE) {
   const dressing = new THREE.Group();
   scene.add(dressing);
 
+  // nothing grows through a shop: dressing placement keeps a clear ring
+  // around every boardwalk stall
+  function nearStall(x, z) {
+    for (const s of STALLS) {
+      const dx = x - s.x, dz = z - s.z;
+      if (dx * dx + dz * dz < 4.6 * 4.6) return true;
+    }
+    return false;
+  }
+
   function palm(x, z, s, lean) {
+    if (nearStall(x, z)) return;
     const g = new THREE.Group();
     const seg = 4, h = 5.2 * s;
     for (let i = 0; i < seg; i++) {
@@ -311,6 +328,7 @@ export function createScene(canvas, COVE) {
   }
 
   function bush(x, z, s, col) {
+    if (nearStall(x, z)) return null;
     const b = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), lam(col));
     b.position.set(x, s * 0.62, z);
     b.scale.set(1, 0.78, 1);
@@ -320,6 +338,7 @@ export function createScene(canvas, COVE) {
   }
 
   function rock(x, z, s) {
+    if (nearStall(x, z)) return;
     const r = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), lam(PAL.rock));
     r.position.set(x, s * 0.42, z);
     r.rotation.set(x * 0.3, z * 0.5, x * 0.2);
@@ -454,21 +473,38 @@ export function createScene(canvas, COVE) {
     dressing.add(boat);
   }
 
-  // the boardwalk: three tiki-torch stalls standing where link 2 hangs the
-  // spell racks. Empty frames today, on purpose — the SPACE is the design.
+  // THE BOARDWALK (link 2): six tiki-torch stalls from data.js — four spell
+  // racks along the jungle line, the fruit stand and the surf shack out on the
+  // flanks. All of them stand BEHIND the fence/jungle line: the boardwalk
+  // frames the cove, it does not stand in the fight. Anything inside the play
+  // area sits between the camera and the hero and eats the screen.
   const torchFlames = [];
-  function stall(x, z, col, s) {
+  const stallGems = [];
+  function stall(def) {
     const g = new THREE.Group();
-    g.scale.setScalar(s || 1);
+    g.scale.setScalar(0.86);
     for (const sx of [-1.5, 1.5]) {
       const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 2.5, 6), lam(PAL.trunk));
       leg.position.set(sx, 1.25, 0); g.add(leg);
     }
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(2.7, 1.5, 4), lam(col));
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(2.7, 1.5, 4), lam(def.color));
     roof.position.set(0, 3.1, 0); roof.rotation.y = Math.PI / 4;
     g.add(roof);
     const counter = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.28, 1.2), lam(PAL.post));
     counter.position.set(0, 1.1, 0.2); g.add(counter);
+    // goods on the counter: little colour-matched crates read as "stocked"
+    for (const gx of [-1.0, -0.1, 0.9]) {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.5), lam(gx === -0.1 ? def.color : PAL.rope));
+      box.position.set(gx, 1.42, 0.15); box.rotation.y = gx * 1.7;
+      g.add(box);
+    }
+    // the beacon gem: a slow-bobbing marker in the stall's colour, readable
+    // from anywhere on the sand — this is how a shop says "I am a shop"
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.5, 0),
+      new THREE.MeshBasicMaterial({ color: def.color, fog: false }));
+    gem.position.set(0, 4.4, 0);
+    g.add(gem);
+    stallGems.push(gem);
     for (const sx of [-2.4, 2.4]) {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 2.9, 5), lam(PAL.trunk));
       pole.position.set(sx, 1.45, 0.6); g.add(pole);
@@ -477,15 +513,14 @@ export function createScene(canvas, COVE) {
       flame.position.set(sx, 3.2, 0.6); g.add(flame);
       torchFlames.push(flame);
     }
-    g.position.set(x, 0, z);
+    g.position.set(def.x, 0, def.z);
+    // face the counter at the sand: flank stalls turn toward the middle
+    if (def.x < -COVE.halfWidth) g.rotation.y = Math.PI / 2;
+    else if (def.x > COVE.halfWidth) g.rotation.y = -Math.PI / 2;
+    else g.rotation.y = Math.PI;
     dressing.add(g);
   }
-  // Set BEHIND the fence line, not on the sand: the boardwalk frames the cove,
-  // it does not stand in the fight. Anything inside the play area sits between
-  // the camera and the hero and eats the screen.
-  stall(-17, COVE.inland + 3.0, PAL.hibiscus, 0.82);
-  stall(0, COVE.inland + 4.2, PAL.gold, 0.82);
-  stall(17, COVE.inland + 3.0, PAL.seaShallow, 0.82);
+  for (const def of STALLS) stall(def);
 
   // the volcano, watching (§5)
   {
@@ -583,31 +618,180 @@ export function createScene(canvas, COVE) {
   blobs.count = 0; blobs.frustumCulled = false;
   scene.add(blobs);
 
-  // --- THE CASTAWAY. A placeholder body: bright clothes, big silhouette. ---
-  const hero = new THREE.Group();
-  {
-    const legs = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.55, 3, 8), lam(0x2A3F6B));
-    legs.position.y = 0.5; hero.add(legs);
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.6, 3, 8), lam(PAL.hero));
-    torso.position.y = 1.22; hero.add(torso);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.16, 5, 12), lam(PAL.heroTrim));
-    ring.rotation.x = Math.PI / 2; ring.position.y = 1.16; hero.add(ring);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 9, 7), lam(PAL.heroSkin));
-    head.position.y = 1.92; hero.add(head);
-    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.62, 0.42, 9), lam(PAL.sandLit));
-    hat.position.y = 2.16; hero.add(hat);
-    const armR = new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.55, 2, 6), lam(PAL.heroSkin));
-    armR.position.set(-0.56, 1.25, 0.05); armR.rotation.z = 0.28; hero.add(armR);
-    const armL = new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.55, 2, 6), lam(PAL.heroSkin));
-    armL.position.set(0.56, 1.25, 0.05); armL.rotation.z = -0.28; hero.add(armL);
-    hero.userData.armL = armL;
-    // a driftwood club, because everything here washed up
-    const club = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.15, 1.5, 5), lam(PAL.trunk));
+  // --- THE CASTAWAYS. One builder per body (§6: model + statline + innate);
+  // the FORGE swap is a child-swap, so link 1's swing/flash rig keeps working.
+  // Every builder must set userData.torso (hit tint), .armL and .club (swing).
+  function buildHeroBody(bodyId) {
+    const g = new THREE.Group();
+    const add = m => { g.add(m); return m; };
+    const skin = PAL.heroSkin;
+
+    if (bodyId === 'diver') {
+      // THE PEARL DIVER: slim teal wetsuit, goggles, a reef spear.
+      const legs = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.6, 3, 8), lam(0x0E6E80)));
+      legs.position.y = 0.52;
+      const torso = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.58, 3, 8), lam(PAL.seaShallow)));
+      torso.position.y = 1.24;
+      g.userData.torso = torso;
+      const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.30, 9, 7), lam(skin)));
+      head.position.y = 1.88;
+      const goggles = add(new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.07, 5, 10), lam(0x203040)));
+      goggles.position.set(0, 1.94, 0.1); goggles.rotation.x = Math.PI / 2.3;
+      const armR = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.5, 2, 6), lam(skin)));
+      armR.position.set(-0.48, 1.28, 0.05); armR.rotation.z = 0.3;
+      const armL = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.5, 2, 6), lam(skin)));
+      armL.position.set(0.48, 1.28, 0.05); armL.rotation.z = -0.3;
+      g.userData.armL = armL;
+      const spear = add(new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 2.3, 5), lam(PAL.trunk)));
+      spear.position.set(0.62, 1.15, 0.3); spear.rotation.set(0.35, 0, -0.2);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 5), lam(0xD8E8F0));
+      tip.position.y = 1.25; spear.add(tip);
+      g.userData.club = spear;
+      return g;
+    }
+
+    if (bodyId === 'magician') {
+      // THE RETIRED CRUISE MAGICIAN: violet tux, top hat, working wand.
+      const legs = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.58, 3, 8), lam(0x2A2138)));
+      legs.position.y = 0.52;
+      const torso = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 0.6, 3, 8), lam(0x5B3A8E)));
+      torso.position.y = 1.24;
+      g.userData.torso = torso;
+      const shirt = add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.16), lam(0xF7FBFF)));
+      shirt.position.set(0, 1.34, 0.3);
+      const bow = add(new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.1), lam(PAL.hibiscus)));
+      bow.position.set(0, 1.6, 0.32);
+      const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.31, 9, 7), lam(skin)));
+      head.position.y = 1.9;
+      const brim = add(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.06, 10), lam(0x1E1828)));
+      brim.position.y = 2.12;
+      const hat = add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.33, 0.55, 10), lam(0x1E1828)));
+      hat.position.y = 2.4;
+      const band = add(new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.1, 10), lam(PAL.gold)));
+      band.position.y = 2.2;
+      const armR = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.5, 2, 6), lam(0x5B3A8E)));
+      armR.position.set(-0.5, 1.28, 0.05); armR.rotation.z = 0.3;
+      const armL = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.5, 2, 6), lam(0x5B3A8E)));
+      armL.position.set(0.5, 1.28, 0.05); armL.rotation.z = -0.3;
+      g.userData.armL = armL;
+      const wand = add(new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.0, 5), lam(0x1E1828)));
+      wand.position.set(0.64, 1.35, 0.3); wand.rotation.set(0.4, 0, -0.3);
+      const wtip = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5),
+        new THREE.MeshBasicMaterial({ color: 0xFFF6D2, fog: false }));
+      wtip.position.y = 0.55; wand.add(wtip);
+      g.userData.club = wand;
+      return g;
+    }
+
+    // THE WRESTLER (default/castaway): bright trunks, championship belt, and
+    // the life ring that makes the silhouette. Went overboard mid-promo.
+    const legs = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.55, 3, 8), lam(0x2A3F6B)));
+    legs.position.y = 0.5;
+    const torso = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.44, 0.6, 3, 8), lam(PAL.hero)));
+    torso.position.y = 1.22;
+    g.userData.torso = torso;
+    const belt = add(new THREE.Mesh(new THREE.CylinderGeometry(0.47, 0.47, 0.14, 10), lam(PAL.gold)));
+    belt.position.y = 0.94;
+    const ring = add(new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.16, 5, 12), lam(PAL.heroTrim)));
+    ring.rotation.x = Math.PI / 2; ring.position.y = 1.16;
+    const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.34, 9, 7), lam(skin)));
+    head.position.y = 1.92;
+    const hat = add(new THREE.Mesh(new THREE.ConeGeometry(0.62, 0.42, 9), lam(PAL.sandLit)));
+    hat.position.y = 2.16;
+    const armR = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.55, 2, 6), lam(skin)));
+    armR.position.set(-0.56, 1.25, 0.05); armR.rotation.z = 0.28;
+    const armL = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.55, 2, 6), lam(skin)));
+    armL.position.set(0.56, 1.25, 0.05); armL.rotation.z = -0.28;
+    g.userData.armL = armL;
+    const club = add(new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.15, 1.5, 5), lam(PAL.trunk)));
     club.position.set(0.7, 1.05, 0.35); club.rotation.set(0.5, 0, -0.35);
-    hero.add(club);
-    hero.userData.club = club;
+    g.userData.club = club;
+    return g;
   }
+
+  const hero = new THREE.Group();
+  let heroBody = buildHeroBody(null);
+  hero.add(heroBody);
   scene.add(hero);
+  function setHeroBody(bodyId) {
+    hero.remove(heroBody);
+    heroBody = buildHeroBody(bodyId);
+    hero.add(heroBody);
+  }
+
+  // --- BOSSES: the creep protos scaled up and crowned. One per skin, hidden
+  // until a hero-unit boss walks the sand (§6). ---
+  const bossMeshes = {};
+  for (const [skin, col, tint] of [['crab', PAL.crab, 0xB33E1E], ['jelly', PAL.jelly, 0x7A3EA8]]) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(creepProto(skin), lam(tint));
+    g.add(body);
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 0.3, 8), lam(PAL.gold));
+    crown.position.y = skin === 'crab' ? 0.75 : 1.05;
+    g.add(crown);
+    for (let i = 0; i < 5; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.22, 4), lam(PAL.gold));
+      const a = (i / 5) * Math.PI * 2;
+      spike.position.set(Math.sin(a) * 0.34, (skin === 'crab' ? 0.75 : 1.05) + 0.22, Math.cos(a) * 0.34);
+      g.add(spike);
+    }
+    g.visible = false;
+    g.userData.body = body;
+    scene.add(g);
+    bossMeshes[skin] = g;
+  }
+
+  // --- THE REEF GOLEM: mossy rocks that fight for you. Pool of 2. ---
+  const golems = [];
+  for (let i = 0; i < 2; i++) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.DodecahedronGeometry(0.62, 0), lam(PAL.rock));
+    body.position.y = 0.85; body.scale.set(1, 1.15, 0.9);
+    g.add(body);
+    const moss = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 0), lam(PAL.jungle));
+    moss.position.y = 1.42; moss.scale.set(1.1, 0.5, 1.1);
+    g.add(moss);
+    const head = new THREE.Mesh(new THREE.DodecahedronGeometry(0.3, 0), lam(PAL.rockDark));
+    head.position.y = 1.7;
+    g.add(head);
+    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.85, 0.3), lam(PAL.rockDark));
+    armR.position.set(-0.75, 0.95, 0); armR.rotation.z = 0.15;
+    g.add(armR);
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.85, 0.3), lam(PAL.rockDark));
+    armL.position.set(0.75, 0.95, 0); armL.rotation.z = -0.15;
+    g.add(armL);
+    g.visible = false;
+    g.userData.body = body;
+    scene.add(g);
+    golems.push(g);
+  }
+
+  // --- SPELL PROJECTILES: one glowing instanced batch, coloured by rack. ---
+  const PROJ_CAP = 64;
+  const projMesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.28, 7, 5),
+    new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.95, depthWrite: false, fog: false }),
+    PROJ_CAP);
+  projMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  projMesh.count = 0; projMesh.frustumCulled = false;
+  projMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PROJ_CAP * 3), 3);
+  scene.add(projMesh);
+  const CAT_GLOW = { STRIKE: new THREE.Color(0xFFA24A), GUARD: new THREE.Color(0x7AC8FF), CURRENT: new THREE.Color(0x7FE7D8), DEEP: new THREE.Color(0xFFD24A) };
+
+  // --- METEORS: falling stones for METEOR TIDE, driven by sim warn events. ---
+  const meteors = [];
+  for (let i = 0; i < 14; i++) {
+    const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.55, 0),
+      new THREE.MeshBasicMaterial({ color: 0xFF9A3C, fog: false }));
+    m.visible = false;
+    scene.add(m);
+    meteors.push({ m, live: false, x: 0, z: 0, t: 0, total: 1 });
+  }
+  function meteorWarn(x, z, secsToLand) {
+    const slot = meteors.find(mm => !mm.live) || meteors[0];
+    slot.live = true; slot.x = x; slot.z = z; slot.t = 0; slot.total = Math.max(0.2, secsToLand);
+    slot.m.visible = true;
+  }
 
   // the ring under the hero's feet + the click marker (the RTS tell)
   const heroRing = new THREE.Mesh(new THREE.RingGeometry(0.78, 0.95, 20),
@@ -659,7 +843,10 @@ export function createScene(canvas, COVE) {
   const white = C(0xFFFFFF);
   const flash = C(0xFFF2C4);
   const heroCol = C(PAL.hero);
-  const BLOB_CAP = CREEP_CAP + 4;
+  const slowCol = C(0x9FD8FF);     // FROST SNAP's ice
+  const rootCol = C(0xB6FF9A);     // ROOT VINE's grip
+  const avatarCol = C(0xFF6A3C);   // the volcano, worn
+  const BLOB_CAP = CREEP_CAP + 8;
   let camShake = 0;
 
   function draw(S, alpha, tSec, dt) {
@@ -692,7 +879,7 @@ export function createScene(canvas, COVE) {
       r.t += dt;
       const k = r.t / 1.5;
       if (k >= 1) { r.live = false; r.m.visible = false; continue; }
-      const s = 1 + k * 7;
+      const s = (1 + k * 7) * (r.size || 1);
       r.m.scale.set(s, s, s);
       r.m.material.opacity = 0.8 * (1 - k);
     }
@@ -701,6 +888,21 @@ export function createScene(canvas, COVE) {
       const f = torchFlames[i];
       const k = 1 + Math.sin(tSec * 7 + i * 1.7) * 0.18;
       f.scale.set(k, 1 / k, k);
+    }
+    for (let i = 0; i < stallGems.length; i++) {
+      const g = stallGems[i];
+      g.position.y = 4.4 + Math.sin(tSec * 2 + i * 1.3) * 0.25;
+      g.rotation.y = tSec * 1.2 + i;
+    }
+
+    // meteors fall on their own clocks; the sim's impact tick pops the ring
+    for (const mm of meteors) {
+      if (!mm.live) continue;
+      mm.t += dt;
+      const k = mm.t / mm.total;
+      if (k >= 1) { mm.live = false; mm.m.visible = false; continue; }
+      mm.m.position.set(mm.x + (1 - k) * 1.6, 16 * (1 - k) + 0.4, mm.z - (1 - k) * 0.8);
+      mm.m.rotation.x = k * 9; mm.m.rotation.z = k * 7;
     }
 
     // --- hero ---
@@ -714,12 +916,25 @@ export function createScene(canvas, COVE) {
       hero.position.set(hx, Math.abs(Math.sin(tSec * (moving ? 9 : 2.2))) * bobA, hz);
       hero.rotation.y = h.facing;
       const swing = h.atkAnim > 0 ? (h.atkAnim / 5) : 0;
-      hero.userData.club.rotation.x = -1.5 * swing;
-      hero.userData.armL.rotation.x = -1.1 * swing;
-      hero.children[1].material.color.copy(h.hitFlash > 0 ? flash : heroCol);
+      const ud = heroBody.userData;
+      if (ud.club) ud.club.rotation.x = -1.5 * swing;
+      if (ud.armL) ud.armL.rotation.x = -1.1 * swing;
+      // AVATAR OF THE VOLCANO wears the hero like a costume
+      const avatar = h.buffs && h.buffs.some(b => b.id === 'avatar');
+      hero.scale.setScalar(avatar ? 1.24 : 1);
+      if (ud.torso) {
+        const base = ud.torso.userData.baseCol || (ud.torso.userData.baseCol = ud.torso.material.color.clone());
+        ud.torso.material.color.copy(h.hitFlash > 0 ? flash : (avatar ? avatarCol : base));
+      }
+      // the ring under your feet tells the truth: shielded, erupting, or just you
+      heroRing.material.color.set(h.shield > 0 ? 0x7AC8FF : (avatar ? 0xFF7A4A : 0x7FE7FF));
       heroRing.position.set(hx, 0.05, hz);
       const pulse = 1 + Math.sin(tSec * 3) * 0.04;
       heroRing.scale.set(pulse, pulse, pulse);
+      if (h.stun > 0) {
+        // stunned: little stars would be work; a hard yellow ring is honest
+        heroRing.material.color.set(0xF5C542);
+      }
     }
 
     // --- click marker ---
@@ -728,32 +943,60 @@ export function createScene(canvas, COVE) {
     const cs = 1 + Math.min(1, clickT * 2) * 0.5;
     clickMark.scale.set(cs, cs, cs);
 
-    // --- creeps, one instanced batch per skin ---
+    // --- creeps, one instanced batch per skin; bosses ride dedicated meshes ---
     const counts = { crab: 0, jelly: 0, monkey: 0 };
     let blobN = 0;
     if (!h.dead) {
       m4.compose(vPos.set(hx, 0.03, hz), IDENT_Q, vScl.set(2.0, 1, 2.0));
       blobs.setMatrixAt(blobN++, m4);
     }
+    for (const k in bossMeshes) bossMeshes[k].visible = false;
     for (const c of S.creeps) {
+      const cx = lerp(c.px, c.x), cz = lerp(c.pz, c.z);
+      const face = Math.atan2(h.x - cx, h.z - cz);
+      const lunge = c.atkAnim > 0 ? 0.25 : 0;
+
+      if (c.big) {
+        const bm = bossMeshes[c.skin];
+        if (bm) {
+          bm.visible = true;
+          const stomp = Math.abs(Math.sin(tSec * 3.2)) * 0.1;
+          bm.position.set(cx, stomp, cz);
+          bm.rotation.y = face;
+          const bs = (c.scale || 2.6) * (1 + lunge * 0.35);
+          bm.scale.set(bs, (c.scale || 2.6) * (1 - lunge * 0.15), bs);
+          const bb = bm.userData.body;
+          const base = bb.userData.baseCol || (bb.userData.baseCol = bb.material.color.clone());
+          bb.material.color.copy(c.hitFlash > 0 ? flash : base);
+        }
+        if (blobN < BLOB_CAP) {
+          const s = (c.scale || 2.6) * 1.4;
+          m4.compose(vPos.set(cx, 0.02, cz), IDENT_Q, vScl.set(s, 1, s));
+          blobs.setMatrixAt(blobN++, m4);
+        }
+        continue;
+      }
+
       const im = creepMeshes[c.skin];
       if (!im) continue;
       const i = counts[c.skin];
       if (i >= CREEP_CAP) continue;
-      const cx = lerp(c.px, c.x), cz = lerp(c.pz, c.z);
-      const face = Math.atan2(h.x - cx, h.z - cz);
       const hop = c.skin === 'jelly'
         ? 0.22 + Math.sin(tSec * 3.1 + c.bob) * 0.16
         : Math.abs(Math.sin(tSec * 6 + c.bob)) * 0.12;
-      const lunge = c.atkAnim > 0 ? 0.25 : 0;
+      const base = c.mini ? 0.62 : 1;
       q.setFromAxisAngle(UP, face);
-      m4.compose(vPos.set(cx, hop, cz), q, vScl.set(1 + lunge, 1 - lunge * 0.4, 1 + lunge));
+      m4.compose(vPos.set(cx, hop * base, cz), q,
+        vScl.set(base * (1 + lunge), base * (1 - lunge * 0.4), base * (1 + lunge)));
       im.setMatrixAt(i, m4);
-      im.setColorAt(i, c.hitFlash > 0 ? flash : white);
+      // status tints: hit flash beats ice beats roots beats plain white
+      im.setColorAt(i, c.hitFlash > 0 ? flash
+        : c.slowTicks > 0 ? slowCol
+        : c.rootTicks > 0 ? rootCol : white);
       counts[c.skin] = i + 1;
 
       if (blobN < BLOB_CAP) {
-        const s = c.skin === 'jelly' ? 1.3 : 1.5;
+        const s = (c.skin === 'jelly' ? 1.3 : 1.5) * base;
         m4.compose(vPos.set(cx, 0.025, cz), IDENT_Q, vScl.set(s, 1, s));
         blobs.setMatrixAt(blobN++, m4);
       }
@@ -764,8 +1007,44 @@ export function createScene(canvas, COVE) {
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
+
+    // --- allies: the golem pool ---
+    for (const g of golems) g.visible = false;
+    for (let i = 0; i < S.allies.length && i < golems.length; i++) {
+      const a = S.allies[i];
+      const g = golems[i];
+      g.visible = true;
+      const ax = lerp(a.px, a.x), az = lerp(a.pz, a.z);
+      const stomp = Math.abs(Math.sin(tSec * 4 + i)) * 0.08;
+      g.position.set(ax, stomp, az);
+      g.rotation.y = a.facing;
+      const lunge = a.atkAnim > 0 ? 0.2 : 0;
+      g.scale.set(1 + lunge, 1 - lunge * 0.2, 1 + lunge);
+      const gb = g.userData.body;
+      const base = gb.userData.baseCol || (gb.userData.baseCol = gb.material.color.clone());
+      gb.material.color.copy(a.hitFlash > 0 ? flash : base);
+      if (blobN < BLOB_CAP) {
+        m4.compose(vPos.set(ax, 0.02, az), IDENT_Q, vScl.set(1.8, 1, 1.8));
+        blobs.setMatrixAt(blobN++, m4);
+      }
+    }
     blobs.count = blobN;
     blobs.instanceMatrix.needsUpdate = true;
+
+    // --- projectiles ---
+    let pn = 0;
+    for (const p of S.projs) {
+      if (p.dead || pn >= PROJ_CAP) continue;
+      const px = lerp(p.px, p.x), pz2 = lerp(p.pz, p.z);
+      const wob = 1 + Math.sin(tSec * 22 + p.id) * 0.18;
+      m4.compose(vPos.set(px, 1.15, pz2), IDENT_Q, vScl.set(wob, wob, wob));
+      projMesh.setMatrixAt(pn, m4);
+      projMesh.setColorAt(pn, CAT_GLOW[p.cat] || white);
+      pn++;
+    }
+    projMesh.count = pn;
+    projMesh.instanceMatrix.needsUpdate = true;
+    if (projMesh.instanceColor) projMesh.instanceColor.needsUpdate = true;
 
     // --- camera: follow the hero loosely, RTS style; kick on a hero hit ---
     const wantX = THREE.MathUtils.clamp(hx * 0.42, -9, 9);
@@ -786,7 +1065,8 @@ export function createScene(canvas, COVE) {
 
   return {
     renderer, scene, camera, CAM,
-    resize, draw, pickGround, worldToScreen, popFoamRing, markClick, kick,
+    resize, draw, pickGround, worldToScreen, popFoamRing, popRing, markClick, kick,
+    setHeroBody, meteorWarn,
     paletteTex,
   };
 }

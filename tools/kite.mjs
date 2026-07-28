@@ -9,6 +9,7 @@ function run(policy) {
   const depths = [];
   for (const sd of SEEDS) {
     const sim = createSim(makeSeed(sd));
+    sim.pickBody('wrestler');   // the run starts at the Forge now
     let best = 0;
     for (let i = 0; i < 20 * 60 * 25; i++) {
       if (sim.S.phase === PHASE.BREAK) sim.skipTide();

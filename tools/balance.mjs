@@ -10,6 +10,7 @@ for (let tide = 1; tide <= MAXT; tide++) {
   let clears = 0, tickSum = 0, hpSum = 0, maxMelee = 0;
   for (const sd of SEEDS) {
     const sim = createSim(makeSeed(sd));
+    sim.pickBody(process.argv[3] || 'wrestler');   // the run starts at the Forge now
     // jump straight to the tide under test
     while (sim.S.tide < tide - 1) { if (sim.S.phase === PHASE.BREAK) sim.skipTide(); sim.tick(); if (sim.S.tick > 60000) break; }
     sim.S.hero.hp = sim.S.hero.maxHp;

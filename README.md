@@ -10,22 +10,25 @@ A zero-install browser game — one page, three.js, **no build step, no backend*
 
 ---
 
-## Status — P0, link 1 of 3
+## Status — P0, link 2 of 3
 
-This repo is the **foundation link**: the cove, the deterministic sim, the click-move
-hero and the tide spawner. It is a playable graybox, not the game.
+Link 1 built the cove, the deterministic sim and the tide spawner. **Link 2 is the
+game**: the Forge, the boardwalk, and ten full tides with something waiting at the end.
 
 | | |
 |---|---|
-| ✅ shipped | island cove scene, 20Hz deterministic sim, click-to-move hero with auto-attack, tide/surf-set spawner, shop-break loop, gold + pearls, `RESORT.*` debug API, headless CDP smoke test, i18n rails, `?v=` cache-bust |
-| 🔜 link 2 | 3 bodies, 16 spells on boardwalk racks, fruit stand, Surf Shack items, tides 1–10 + boss |
+| ✅ link 1 | island cove scene, 20Hz deterministic sim, click-to-move hero with auto-attack, tide/surf-set spawner, shop-break loop, gold + pearls, `RESORT.*` debug API, headless CDP smoke test, i18n rails, `?v=` cache-bust |
+| ✅ link 2 | **THE FORGE** (3 bodies, each a statline + one tiny innate) · **16 spells as shop items** on four walkable boardwalk racks (STRIKE / GUARD / CURRENT / DEEP), all driven by ONE data-driven engine · pearls buy breadth, XP → skill points → ranks buy depth · **100g Tide Tablet respec** (full pearl refund — sacred) · fruit stand (3 stats, rank 50) · Surf Shack (8 items, 6 slots) · QWER smart-cast at the hover point + cooldown HUD · **boss tides 5 & 10** with reduced quotas · **modifier tides** from 6 (Bash Crabs / Evasive Monkeys / Splitting Jellies) · tide 10 finale + victory screen |
 | 🔜 link 3 | ghost standings, UI pass, playtest, fun-gate report |
 
 ### Controls
 - **Click** (either button) anywhere on the sand to move. Hold and drag to keep repathing.
 - The hero auto-attacks whatever is nearest once it stops.
-- **Space / Enter** — call the next tide in early.
-- **Q W E R** — spell slots. Boarded up until link 2.
+- **Q W E R** — smart-cast at the mouse point, no click-confirm. R is the big slot.
+- **Walk to a stall** — its rack opens; walk away and it closes. The break countdown
+  holds while a rack is open: the tide waits while you haggle.
+- **C** — the castaway sheet (stats, ranks, respec). **1–6** — drink a slotted juice.
+- **Space / Enter** — call the next tide in early. **Esc** — wave the shopkeeper off.
 
 ### Try it
 ```
@@ -66,12 +69,21 @@ Two more that earned their place the hard way:
 ```
 index.html            shell, FFX-era UI skin, ?v= stamped import map
 js/rng.js             mulberry32 + the versioned seed object
+js/data.js            THE CONTENT — bodies, 16 spell rows, items, fruit, mods, stalls
 js/sim.js             THE SIM — pure, deterministic, testable in node
 js/scene.js           the cove: geometry, palette, camera, draw
+js/shop.js            the boardwalk UI: forge, racks, castaway sheet, victory
 js/game.js            fixed-step loop, input, HUD, window.RESORT
-tools/cdp_smoke.mjs   headless boot + sim smoke test over CDP
+tools/cdp_smoke.mjs   headless 58-check battery over CDP (incl. a full 10-tide run)
+tools/bot.mjs         the shopper bot — shared by node balance tools and the battery
+tools/shopper.mjs     balance matrix: STAND (run-1 proxy) vs KITE (run-3 proxy)
 bump.sh               stamp a new ?v= before every push
 ```
+
+**One spell engine, sixteen data rows.** Every spell in `js/data.js` is a descriptor
+(`proj` / `nova` / `aoe` / `chain` / `shield` / `heal` / `dash` / `rain` / `buff` /
+`summon` / `passive`) interpreted by one function in the sim — the CHS content cheat
+code, kept as law. Rank scaling is one rule everywhere: `value = a + b × (rank-1)`.
 
 ## Running it
 
@@ -79,13 +91,18 @@ bump.sh               stamp a new ?v= before every push
 python3 -m http.server 8791     # no build step; it is just files
 open http://127.0.0.1:8791/
 
-node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 25 checks + a screenshot
+node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 58 checks + a screenshot
+node tools/shopper.mjs                               # the balance matrix
 ```
 
-The smoke test boots the page in real headless Chrome with real WebGL, pauses the wall
-clock, runs two whole tides **through sim ticks**, and asserts the same seed reproduces
-exactly. Compile-success and byte-checksums are necessary but not sufficient — only
-running it catches a boot crash.
+The battery boots the page in real headless Chrome with real WebGL, pauses the wall
+clock, and asserts everything **through sim ticks**: the Forge gate, rack buys and
+tier locks, cooldowns, the ledger law (`gold === start + bounty + clears − spent`,
+every tick), and a **full 10-tide auto-run** by the shared shopper bot — reduced boss
+quotas at 5/10, one bolted modifier at 6/9, the exact pearl schedule, and a VICTORY
+with run stats at the end. Same seed + same scripted inputs must reproduce
+byte-for-byte. Compile-success and byte-checksums are necessary but not sufficient —
+only running it catches a boot crash.
 
 ## `window.RESORT`
 
@@ -100,6 +117,19 @@ RESORT.spawn(8, 'crab')         // put creeps on the sand
 RESORT.skipTide()               // call the tide in early
 RESORT.giveGold(500)            // top up the purse
 RESORT.state                    // the live sim state
+
+// link 2 — the build API (the shop UI drives these same calls)
+RESORT.pickBody('diver')        // step off the Forge
+RESORT.buySpell('fireball')     // pearls -> breadth; auto-racks to a free slot
+RESORT.equip('crit', 'W')       // re-rack a spell
+RESORT.cast('Q', x, z)          // smart-cast at a world point
+RESORT.rankUp('fireball')       // skill point -> depth
+RESORT.buyFruit('mango', true)  // true = the five-pack
+RESORT.buyItem('flippers')      // Surf Shack, 6 slots
+RESORT.useItem(0)               // drink the juice in slot 0
+RESORT.respec()                 // the 100g Tide Tablet: every pearl comes back
+RESORT.giveXp(500)              // levels for tests
+RESORT.setHold(true)            // hold the break countdown (a rack is open)
 ```
 
 Tests assert on `RESORT.snapshot().tick`. Never on seconds.
@@ -120,18 +150,20 @@ dropping real meshes in later is a swap, not a rewrite.
 
 ## Balance, as measured
 
-Numbers come from `js/sim.js` `TUNE` — one object, so a balance pass is one diff. The
-tide curve (quota `12 + 2×tide`, the HP brackets, bounty `4 + tide`) is spec §6. The
-hero is not spec'd at P0, so it was tuned against a headless probe over 8 seeds:
+Numbers come from `js/data.js` + `js/sim.js` `TUNE` — a balance pass is one diff. The
+tide curve (quota `12 + 2×tide`, the HP brackets, bounty `4 + tide`, pearl prices
+3/5/8) is spec §6 verbatim. The balance target — *a fresh player buying sensibly dies
+around tide 6–8 on run one, clears 10 by run three* — is proxied by the shopper bot
+in `tools/shopper.mjs` and measured over 8 seeds × 3 bodies:
 
-| policy | reaches |
+| policy (sensible buys in both) | result |
 |---|---|
-| stands perfectly still | tide 3 |
-| kites the pack | tide 5 |
+| STAND — casts but never moves (run-one proxy) | dies tide 6–9, avg ≈ 7 |
+| KITE — has learned that feet are a stat (run-three proxy) | clears 10 on 24/24 body×seed runs |
 
-Moving is worth **+2 tides** over standing — which is the point, since click-move is
-the game. The hero is naked here: no spells, no items, no fruit. Link 2's purchases are
-what carry a run to 10.
+The creep damage exponent (0.58) is the knob that opened the run-one death window —
+at the old 0.42 a sensible statue cleared tide 10, measured, so it was raised, measured
+again, and kept.
 
 ## Licence & IP
 
