@@ -19,7 +19,7 @@ import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSl
 import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, mmss } from './ghost.js';
 import { AUDIO } from './audio.js';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.3.1';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;
@@ -44,7 +44,12 @@ const HUD = {
   title: el('title'), titlePlay: el('title-play'), titleDaily: el('title-daily'),
   titleFoot: el('title-foot'),
   slots: { Q: el('slot-q'), W: el('slot-w'), E: el('slot-e'), R: el('slot-r') },
+  btnSheet: el('btn-sheet'), btnMute: el('btn-mute'), btnMuteIco: el('btn-mute-ico'),
 };
+
+// A coarse pointer means thumbs: the shell, a phone browser, an iPad. The CSS
+// grows the slots to thumb size and shows the C/M corner buttons off this.
+const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 
 // ---------------------------------------------------------------------------
 // THE LIFEGUARD'S HINT TICKER — real gameplay tips, megaphone cadence (§2's
@@ -85,6 +90,8 @@ const aim = { x: 0, z: 6 };   // the hover point QWER smart-casts at (D3)
 // ---------------------------------------------------------------------------
 function boot() {
   localizeDom(document);
+  if (IS_TOUCH) document.body.classList.add('touch');
+  HUD.btnMuteIco.textContent = AUDIO.muted ? '🔇' : '🔊';   // resort.mute persists
 
   const qSeed = (location.search.match(/[?&]seed=([A-Za-z0-9_-]+)/) || [])[1];
   sim = createSim(makeSeed(qSeed || undefined));
@@ -579,7 +586,50 @@ function drawHud() {
 // ---------------------------------------------------------------------------
 // INPUT — click-to-move with instant repath; QWER smart-casts at the hover
 // point, no click-confirm (D3). C is the castaway sheet, 1-6 drink the juice.
+// On touch there is no hover, so a slot TAP smart-casts on its own: damage at
+// the nearest creep to the hero (the one chasing you — kiting stays the game),
+// a dash along your current run line, self-spells on the spot.
 // ---------------------------------------------------------------------------
+function nearestCreepToHero() {
+  const S = sim.S;
+  let best = null, bd = Infinity;
+  for (const c of S.creeps) {
+    if (c.receding || c.hp <= 0) continue;
+    const d = (c.x - S.hero.x) ** 2 + (c.z - S.hero.z) ** 2;
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+
+function autoAim(K) {
+  const S = sim.S, h = S.hero;
+  const id = S.slots[K];
+  const t = id && SPELL[id].fx && SPELL[id].fx.type;
+  if (t === 'dash') {
+    // the escape button escapes: keep the line you're running, or break
+    // straight away from the closest thing with teeth
+    if (h.hasOrder) return { x: h.tx, z: h.tz };
+    const c = nearestCreepToHero();
+    if (c) return { x: h.x - (c.x - h.x), z: h.z - (c.z - h.z) };
+    return { x: h.x + Math.sin(h.facing) * 6, z: h.z + Math.cos(h.facing) * 6 };
+  }
+  if (t === 'proj' || t === 'aoe' || t === 'chain' || t === 'rain') {
+    const c = nearestCreepToHero();
+    if (c) return { x: c.x, z: c.z };
+  }
+  return { x: undefined, z: undefined };   // engine centres on the hero
+}
+
+function castSlot(K, auto) {
+  const slot = HUD.slots[K];
+  if (slot) { slot.classList.add('poke'); setTimeout(() => slot.classList.remove('poke'), 180); }
+  const at = auto ? autoAim(K) : aim;
+  const r = sim.cast(K, at.x, at.z);
+  if (!r.ok && r.why === 'empty') announce(TXT('THAT SLOT IS EMPTY — THE RACKS ARE ON THE BOARDWALK'), '#8CF0E4', 1.6);
+  if (!r.ok && r.why === 'passive') announce(TXT('THAT ONE WORKS ON ITS OWN'), '#8CF0E4', 1.4);
+  return r;
+}
+
 function wireInput() {
   let held = false;
 
@@ -592,6 +642,7 @@ function wireInput() {
   const orderAt = (clientX, clientY) => {
     const g = groundAt(clientX, clientY);
     if (!g) return;
+    aim.x = g.x; aim.z = g.z;    // a tap is also the aim (touch has no hover)
     if (sim.order(g.x, g.z)) scene.markClick(sim.S.hero.tx, sim.S.hero.tz);
   };
 
@@ -615,6 +666,26 @@ function wireInput() {
 
   HUD.breakSkip.addEventListener('click', () => { sim.skipTide(); });
 
+  // the QWER slots are buttons too — a tap casts with its own aim
+  for (const K of ['Q', 'W', 'E', 'R']) {
+    HUD.slots[K].addEventListener('pointerdown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      AUDIO.unlock();
+      castSlot(K, true);
+    });
+  }
+
+  // the keyboard-only keys, as corner buttons for thumbs
+  HUD.btnSheet.addEventListener('click', () => toggleCastaway());
+  HUD.btnMute.addEventListener('click', () => {
+    const m = AUDIO.toggleMute();
+    HUD.btnMuteIco.textContent = m ? '🔇' : '🔊';
+    announce(m ? TXT('SOUND OFF — THE SEA GOES QUIET') : TXT('SOUND ON — STEEL PANS AND BAD NEWS'), '#8CF0E4', 2);
+  });
+  // the sheet's own header closes it (the "C CLOSES" hint has no key on glass)
+  document.querySelector('#castaway .chead').addEventListener('click', () => toggleCastaway(false));
+
   addEventListener('keydown', e => {
     const k = e.key.toLowerCase();
     if (k === ' ' || k === 'enter') { if (sim.skipTide()) e.preventDefault(); }
@@ -622,17 +693,11 @@ function wireInput() {
     if (k === 'c') toggleCastaway();
     if (k === 'm') {
       const m = AUDIO.toggleMute();
+      HUD.btnMuteIco.textContent = m ? '🔇' : '🔊';
       announce(m ? TXT('SOUND OFF — THE SEA GOES QUIET') : TXT('SOUND ON — STEEL PANS AND BAD NEWS'), '#8CF0E4', 2);
     }
     if (k >= '1' && k <= '6') useItemSlot(Number(k) - 1);
-    if ('qwer'.includes(k) && k.length === 1) {
-      const K = k.toUpperCase();
-      const slot = HUD.slots[K];
-      if (slot) { slot.classList.add('poke'); setTimeout(() => slot.classList.remove('poke'), 180); }
-      const r = sim.cast(K, aim.x, aim.z);
-      if (!r.ok && r.why === 'empty') announce(TXT('THAT SLOT IS EMPTY — THE RACKS ARE ON THE BOARDWALK'), '#8CF0E4', 1.6);
-      if (!r.ok && r.why === 'passive') announce(TXT('THAT ONE WORKS ON ITS OWN'), '#8CF0E4', 1.4);
-    }
+    if ('qwer'.includes(k) && k.length === 1) castSlot(k.toUpperCase(), false);
   });
 }
 
