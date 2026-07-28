@@ -1,8 +1,11 @@
 # LAST RESORT
 
-Eight castaways wash up on a low-poly tropical island. Each claims a cove. The sea
-sends worse things ashore every tide. Build a hero out of whatever the boardwalk is
-selling and out-survive everyone else.
+Sixteen castaways wash up on a low-poly tropical island. Each claims a fenced
+square on the shore; the market in the middle belongs to everyone. During a tide
+you fight your own wave in your own square — surf-sets break over any fence, not
+just the sea. Between tides the island **ports you to the market**, where every
+shop stands. Spend, then it ports you home for the next one. Build a hero out of
+whatever the racks are selling and out-survive everyone else.
 
 A zero-install browser game — one page, three.js, **no build step, no backend**.
 
@@ -10,7 +13,13 @@ A zero-install browser game — one page, three.js, **no build step, no backend*
 
 ---
 
-## Status — P0 COMPLETE (3 links)
+## Status — P0 COMPLETE + REV 1 (the squares & the market)
+
+**Rev 1 (v0.4.0, 7/28)** restructured the map to the TFT shape on Wyatt's call:
+16 private squares (hard cap) around one central market plaza, teleport-to-shop
+between rounds, edge-rolled spawns from tide 3, a beacon lighthouse marking the
+market from every square, and seat pennants on the fifteen vacant squares that
+multiplayer will fill at P1.
 
 Link 1 built the cove, the deterministic sim and the tide spawner. Link 2 built the
 game. **Link 3 finished it**: the ghost race, the title, the juice, the death
@@ -73,8 +82,8 @@ index.html            shell, FFX-era UI skin, ?v= stamped import map
 js/rng.js             mulberry32 + the versioned seed object
 js/data.js            THE CONTENT — bodies, 16 spell rows, items, fruit, mods, stalls
 js/sim.js             THE SIM — pure, deterministic, testable in node
-js/scene.js           the cove: geometry, palette, camera, draw
-js/shop.js            the boardwalk UI: forge, racks, castaway sheet, victory
+js/scene.js           the island: squares, market, palette, zone camera, draw
+js/shop.js            the market UI: forge, racks, castaway sheet, victory
 js/game.js            fixed-step loop, input, HUD, window.RESORT
 tools/cdp_smoke.mjs   headless 58-check battery over CDP (incl. a full 10-tide run)
 tools/bot.mjs         the shopper bot — shared by node balance tools and the battery
