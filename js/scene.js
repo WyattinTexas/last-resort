@@ -163,11 +163,17 @@ export function createScene(canvas, COVE) {
   }
   placeCamera();
 
-  // --- LIGHT: one sun, one hemisphere. That is the entire rig (§5). ---
+  // --- LIGHT: one sun, one hemisphere. That is the entire rig (§5)... plus a
+  // rim light from the sea that stays dark until GOLD HOUR (milestone tides):
+  // it back-lights every silhouette in warm gold, which is the whole trick.
   const sun = new THREE.DirectionalLight(0xFFF3D0, 1.55);
   sun.position.set(-24, 40, 18);
   scene.add(sun);
-  scene.add(new THREE.HemisphereLight(0xCFEFFF, 0xE8C98E, 0.85));
+  const hemi = new THREE.HemisphereLight(0xCFEFFF, 0xE8C98E, 0.85);
+  scene.add(hemi);
+  const rim = new THREE.DirectionalLight(0xFFB05A, 0);
+  rim.position.set(6, 9, -70);
+  scene.add(rim);
 
   const paletteTex = makePaletteTexture();
 
@@ -478,6 +484,11 @@ export function createScene(canvas, COVE) {
   // flanks. All of them stand BEHIND the fence/jungle line: the boardwalk
   // frames the cove, it does not stand in the fight. Anything inside the play
   // area sits between the camera and the hero and eats the screen.
+  //
+  // Stalls live OUTSIDE the baked dressing (below): their gems bob and their
+  // torch flames flicker every frame, and baking animated meshes freezes them.
+  const stallGroup = new THREE.Group();
+  scene.add(stallGroup);
   const torchFlames = [];
   const stallGems = [];
   function stall(def) {
@@ -518,7 +529,7 @@ export function createScene(canvas, COVE) {
     if (def.x < -COVE.halfWidth) g.rotation.y = Math.PI / 2;
     else if (def.x > COVE.halfWidth) g.rotation.y = -Math.PI / 2;
     else g.rotation.y = Math.PI;
-    dressing.add(g);
+    stallGroup.add(g);
   }
   for (const def of STALLS) stall(def);
 
@@ -533,6 +544,31 @@ export function createScene(canvas, COVE) {
     cap.position.y = 33; v.add(cap);
     v.position.set(-56, -1, COVE.inland + 108);
     dressing.add(v);
+  }
+
+  // --- BAKE THE DRESSING. Several hundred palms, posts, ropes, rocks and
+  // shells as individual meshes cost a draw call EACH (the playtest measured
+  // 364). None of them ever move, so: bake world transforms into cloned
+  // geometry, merge one mesh per material, and the whole island renders in
+  // ~a dozen calls. Stalls stay live (animated); units were instanced already.
+  {
+    dressing.updateMatrixWorld(true);
+    const buckets = new Map();
+    dressing.traverse(m => {
+      if (!m.isMesh) return;
+      const key = m.material.color.getHex() * 2 + (m.material.flatShading ? 1 : 0);
+      let b = buckets.get(key);
+      if (!b) { b = { mat: m.material, geos: [] }; buckets.set(key, b); }
+      const g = m.geometry.clone();
+      g.applyMatrix4(m.matrixWorld);
+      b.geos.push(g);
+    });
+    scene.remove(dressing);
+    for (const b of buckets.values()) {
+      const mesh = new THREE.Mesh(mergeGeos(b.geos), b.mat);
+      mesh.matrixAutoUpdate = false;
+      scene.add(mesh);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -849,6 +885,18 @@ export function createScene(canvas, COVE) {
   const BLOB_CAP = CREEP_CAP + 8;
   let camShake = 0;
 
+  // --- moods: the vista pull (death spectacle) and gold hour (milestones).
+  // Both are one scalar eased toward a target; every lit thing lerps off it.
+  const BASE_CAM = { pitch: CAM.pitch, dist: CAM.dist };
+  const VISTA_CAM = { pitch: THREE.MathUtils.degToRad(15), dist: 82, x: 0, z: -18 };
+  let vistaOn = false, vistaK = 0;
+  let goldOn = false, goldK = 0;
+  const sunBase = C(0xFFF3D0), sunGold = C(0xFFBE62);
+  const fogBase = C(PAL.skyHaze), fogGold = C(0xF2CD9A);
+  const bgBase = C(PAL.skyMid), bgGold = C(0x5FA8CE);
+  function setVista(on) { vistaOn = !!on; return vistaOn; }
+  function setGoldHour(on) { goldOn = !!on; return goldOn; }
+
   function draw(S, alpha, tSec, dt) {
     const lerp = (a, b) => a + (b - a) * alpha;
 
@@ -1046,11 +1094,29 @@ export function createScene(canvas, COVE) {
     projMesh.instanceMatrix.needsUpdate = true;
     if (projMesh.instanceColor) projMesh.instanceColor.needsUpdate = true;
 
-    // --- camera: follow the hero loosely, RTS style; kick on a hero hit ---
+    // --- moods ---
+    vistaK += ((vistaOn ? 1 : 0) - vistaK) * Math.min(1, dt * 1.7);
+    goldK += ((goldOn ? 1 : 0) - goldK) * Math.min(1, dt * 1.5);
+    if (goldK > 0.001 || rim.intensity > 0) {
+      sun.color.lerpColors(sunBase, sunGold, goldK);
+      sun.intensity = 1.55 + goldK * 0.5;
+      hemi.intensity = 0.85 - goldK * 0.16;
+      rim.intensity = goldK * 1.7;
+      fogColor.lerpColors(fogBase, fogGold, goldK);
+      scene.background.lerpColors(bgBase, bgGold, goldK);
+      sunDisc.material.opacity = 0.9 + goldK * 0.1;
+      sunDisc.scale.setScalar(1 + goldK * 0.35);
+    }
+
+    // --- camera: follow the hero loosely, RTS style; kick on a hero hit.
+    // On a washout the whole rig eases out to the postcard instead — death is
+    // a beauty shot with a countdown on it, never a logout (§3).
     const wantX = THREE.MathUtils.clamp(hx * 0.42, -9, 9);
     const wantZ = THREE.MathUtils.clamp(-3 + hz * 0.32, -7, 6);
-    CAM.look.x += (wantX - CAM.look.x) * 0.055;
-    CAM.look.z += (wantZ - CAM.look.z) * 0.055;
+    CAM.look.x += (wantX + (VISTA_CAM.x - wantX) * vistaK - CAM.look.x) * 0.055;
+    CAM.look.z += (wantZ + (VISTA_CAM.z - wantZ) * vistaK - CAM.look.z) * 0.055;
+    CAM.pitch = BASE_CAM.pitch + (VISTA_CAM.pitch - BASE_CAM.pitch) * vistaK;
+    CAM.dist = BASE_CAM.dist + (VISTA_CAM.dist - BASE_CAM.dist) * vistaK;
     if (camShake > 0) camShake *= 0.86;
     placeCamera();
     if (camShake > 0.01) {
@@ -1066,7 +1132,9 @@ export function createScene(canvas, COVE) {
   return {
     renderer, scene, camera, CAM,
     resize, draw, pickGround, worldToScreen, popFoamRing, popRing, markClick, kick,
-    setHeroBody, meteorWarn,
+    setHeroBody, meteorWarn, setVista, setGoldHour,
+    get vistaK() { return vistaK; },
+    get goldK() { return goldK; },
     paletteTex,
   };
 }

@@ -312,6 +312,58 @@ const main = async () => {
   // spec prices that is a 4-5 spell build. 4+ = the economy actually flowed.
   ok(runAll.spells >= 4, 'the bot owned a real build by the end', `${runAll.spells} spells`);
 
+  // --- 6.5 THE GHOST: record, race, daily shelf (link 3) -----------------
+  console.log('\nGHOST — the record, the race, the daily shelf');
+  await sleep(400);   // the victory event drains on the next rAF; let it land
+  const rec = await evalJs('RESORT.ghost.load("free")');
+  ok(rec && rec.v === 1 && rec.cleared === 10 && Object.keys(rec.tides).length === 10,
+    'victory wrote the ghost record: 10 tides of splits', rec ? `cleared=${rec.cleared}` : 'null');
+  ok(rec && rec.totalTick === runAll.victory.ticks,
+    "the ghost's total clock === the victory run clock", rec && `${rec.totalTick} ticks`);
+  ok(rec && rec.tides[10] && rec.tides[10].kills === rec.kills && rec.tides[10].worth > 0,
+    'per-tide entries carry kills and net worth', rec && JSON.stringify(rec.tides[10]));
+
+  await evalJs('RESORT.setSeed("battery")');
+  await evalJs('RESORT.pickBody("diver")');
+  ok(await evalJs('RESORT.ghost.ghost !== null'), 'a fresh run freezes the stored ghost to race');
+  const race = await evalJs(`(()=>{
+    const sim = RESORT.sim, S = RESORT.state;
+    const bot = window.__makeShopper(sim, {kite:true});
+    RESORT.buySpell('fireball');
+    let t = 0;
+    while (S.cleared < 2 && t < 20*60*6) { bot.step(); sim.tick(); t++; }
+    return {cleared:S.cleared,
+      you1:S.tideLog[1] && S.tideLog[1].tick, g1:RESORT.ghost.ghost.tides[1].tick};
+  })()`);
+  await sleep(600);   // clears drain on rAF; let the race score and the board draw
+  const raceLead = await evalJs('RESORT.ghost.leader');
+  ok(race.cleared === 2 && (raceLead === 'you' || raceLead === 'ghost'),
+    'two cleared tides scored against the ghost — a race has a leader', `leader=${raceLead}`);
+  const board = await evalJs(`({
+    shown: document.getElementById('standings').classList.contains('show'),
+    rows: document.querySelectorAll('#st-rows .strow').length,
+    lead: document.getElementById('st-lead').textContent,
+    foot: document.getElementById('st-foot').textContent })`);
+  ok(board.shown && board.rows === 11, 'the standings board is ALWAYS up: header + ten tide rows', JSON.stringify(board.rows));
+  ok(/\+\d+:\d{2}$/.test(board.lead), 'the lead chip reads like a stopwatch', board.lead);
+  ok(board.foot.length > 8, 'the board footer describes the ghost', board.foot);
+
+  const dkey = await evalJs('(RESORT.setSeed("DAILY-20990101"), RESORT.ghost.key())');
+  ok(dkey === 'daily.DAILY-20990101', 'a DAILY seed routes to its own ghost shelf', dkey);
+  ok(await evalJs('RESORT.ghost.ghost === null'), 'a fresh date has no daily ghost yet');
+  ok((await evalJs('RESORT.seed')).v === 1, 'the daily seed still carries its v:1 field');
+  const dfold = await evalJs(`(()=>{
+    RESORT.pickBody('wrestler');
+    const sim = RESORT.sim, S = RESORT.state;
+    const bot = window.__makeShopper(sim, {kite:true});
+    let t = 0;
+    while (S.cleared < 1 && t < 20*150) { bot.step(); sim.tick(); t++; }
+    RESORT.setSeed('walked-away');
+    return RESORT.ghost.load('daily.DAILY-20990101');
+  })()`);
+  ok(dfold && dfold.cleared >= 1, 'an ABANDONED daily run still folds into the daily record',
+    dfold && `cleared=${dfold.cleared}`);
+
   // --- 7. DETERMINISM WITH SCRIPTED INPUTS ------------------------------
   console.log('\nDETERMINISM — same seed, same inputs, same world');
   const script = `(()=>{
@@ -344,6 +396,47 @@ const main = async () => {
   const hold = await evalJs('(()=>{RESORT.setSeed("hold"); RESORT.pickBody("diver"); const a=RESORT.state.phaseTicks; RESORT.setHold(true); RESORT.runTicks(40); const b=RESORT.state.phaseTicks; RESORT.setHold(false); RESORT.runTicks(10); return {a,b,c:RESORT.state.phaseTicks};})()');
   ok(hold.a === hold.b && hold.c < hold.b, 'the tide waits while you haggle (shop hold)', JSON.stringify(hold));
 
+  // --- 8.5 PRESENTATION: title, death spectacle, audio kit (link 3) -------
+  console.log('\nPRESENTATION — title, washout vista, countdown, audio');
+  ok(await evalJs('(RESORT.showTitle(true), RESORT.titleUp && document.body.classList.contains("titleup"))'),
+    'the title raises: wordmark up, HUD stands down');
+  ok(await evalJs('(RESORT.showTitle(false), !RESORT.titleUp)'), 'PLAY drops the title');
+
+  const wash = await evalJs(`(()=>{
+    RESORT.setSeed('spectacle');
+    RESORT.pickBody('magician');
+    RESORT.skipTide();
+    RESORT.runTicks(140);
+    RESORT.state.hero.hp = 1;
+    let t = 0;
+    while (RESORT.state.phase !== 'WASHOUT' && t < 20*90) { RESORT.runTicks(1); t++; }
+    return {phase: RESORT.state.phase, deaths: RESORT.state.deaths};
+  })()`);
+  ok(wash.phase === 'WASHOUT' && wash.deaths === 1, 'a dead hero enters WASHOUT, never game over', JSON.stringify(wash));
+  await sleep(700);   // the rAF loop eases the camera even while the sim is paused
+  const spect = await evalJs(`({
+    vista: RESORT.vistaK,
+    down: document.getElementById('down-panel').classList.contains('show'),
+    count: document.getElementById('down-count').textContent })`);
+  ok(spect.vista > 0.05, 'death pulls the camera out to the postcard vista', `vistaK=${spect.vista.toFixed(2)}`);
+  ok(spect.down && /^\d+:\d{2}$/.test(spect.count), 'the WASHED-UP countdown is on screen', spect.count);
+  const deadBreak = await evalJs(`(()=>{
+    let t = 0;
+    while (RESORT.state.phase === 'WASHOUT' && t < 200) { RESORT.runTicks(1); t++; }
+    return {phase: RESORT.state.phase, ticks: RESORT.state.phaseTicks, dead: RESORT.state.hero.dead};
+  })()`);
+  ok(deadBreak.phase === 'BREAK' && deadBreak.ticks === 240 && deadBreak.dead,
+    'the dead break runs 12s and the hero stays down through it', JSON.stringify(deadBreak));
+  const back = await evalJs('(RESORT.runTicks(245), {phase:RESORT.state.phase, dead:RESORT.state.hero.dead, hp:RESORT.state.hero.hp})');
+  ok(back.phase === 'TIDE' && !back.dead && back.hp > 0,
+    'the next tide washes the hero back up — death is never a logout', JSON.stringify(back));
+
+  const aud = await evalJs('(()=>{const a=RESORT.audio; const m0=a.muted; const m1=a.toggleMute(); const m2=a.toggleMute(); return {has:!!a, m0, m1, m2};})()');
+  ok(aud.has && aud.m1 === !aud.m0 && aud.m2 === aud.m0,
+    'the audio kit is wired and the mute toggle flips both ways (synth-only, no assets)', JSON.stringify(aud));
+  ok((await evalJs('document.getElementById("break-hint").textContent')).length > 6,
+    'the lifeguard hint ticker is rotating real tips');
+
   // --- 9. LIVE FRAME + SCREENSHOT ---------------------------------------
   console.log('\nRENDER');
   await evalJs('RESORT.i18nAudit(true)');
@@ -351,12 +444,9 @@ const main = async () => {
     RESORT.setSeed('postcard');
     RESORT.pickBody('wrestler');
     RESORT.buySpell('fireball');
-    RESORT.runTides(1, 20*60*4);
-    RESORT.skipTide(); RESORT.runTicks(300);
-    RESORT.spawn(9); RESORT.runTicks(60);
-    const c = RESORT.state.creeps.find(c=>!c.dead);
-    if (c) RESORT.cast('Q', c.x, c.z);
-    RESORT.runTicks(6);
+    const S = RESORT.state;
+    S.tide = 4; S.cleared = 4; S.phase = 'BREAK'; S.phaseTicks = 30;   // the tide-jump recipe
+    RESORT.runTicks(130);          // tide 5 begins: KING SANDCLAW wades in under gold hour
     RESORT.resume();
   })()`);
   await sleep(2500);
@@ -364,6 +454,11 @@ const main = async () => {
   await sleep(1500);
   const framesLater = await evalJs('RESORT.frames');
   ok(framesLater > framesNow, 'the render loop is running', `${framesNow} -> ${framesLater} frames`);
+  ok(await evalJs('RESORT.goldK') > 0.05, 'GOLD HOUR — the milestone tide lights the rim',
+    `goldK=${(await evalJs('RESORT.goldK')).toFixed(2)}`);
+  ok(await evalJs('RESORT.state.creeps.some(c=>c.big)'), 'the postcard shot has a boss in it');
+  await evalJs('(()=>{const c=RESORT.state.creeps.find(c=>!c.dead); if(c) RESORT.cast("Q", c.x, c.z); return 1;})()');
+  await sleep(250);
 
   const audit = await evalJs('(RESORT.relocalize(), Object.keys(RESORT.i18nAudit()))');
   ok(audit.length >= 20, 'every live string walks through TXT() (i18n audit is recording)',

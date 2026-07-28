@@ -16,8 +16,10 @@ import { createSim, COVE, TUNE, PHASE, SIM_HZ, TICK_S, creepHp, tideQuota, clear
 import { createScene, PAL } from './scene.js';
 import { SPELL, SPELLS, BODIES, MOD, CAT_COLOR, RULES } from './data.js';
 import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSlot } from './shop.js';
+import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, mmss } from './ghost.js';
+import { AUDIO } from './audio.js';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;
@@ -34,12 +36,36 @@ const HUD = {
   hpBar: el('hud-hp-bar'), hpText: el('hud-hp-text'),
   body: el('hud-body'), lv: el('hud-lv'), xpBar: el('hud-xp-bar'), pts: el('hud-pts'),
   breakPanel: el('break-panel'), breakTimer: el('break-timer'), breakSkip: el('break-skip'),
-  breakTide: el('break-next'),
+  breakTide: el('break-next'), breakHint: el('break-hint'),
   ann: el('ann'), seedLabel: el('seed-label'), build: el('build-label'),
   downPanel: el('down-panel'), downText: el('down-text'),
+  downCount: el('down-count'), downHint: el('down-hint'),
   barnote: el('barnote'),
+  title: el('title'), titlePlay: el('title-play'), titleDaily: el('title-daily'),
+  titleFoot: el('title-foot'),
   slots: { Q: el('slot-q'), W: el('slot-w'), E: el('slot-e'), R: el('slot-r') },
 };
+
+// ---------------------------------------------------------------------------
+// THE LIFEGUARD'S HINT TICKER — real gameplay tips, megaphone cadence (§2's
+// hint ticker, house dialogue-tone law: punchy, never cringe).
+// ---------------------------------------------------------------------------
+const HINTS = [
+  'PASSIVES ONLY WORK SLOTTED. Q W E ARE CHOICES, NOT A CLOSET.',
+  'THE TIDE TABLET REFUNDS EVERY PEARL. 100 GOLD. EXPERIMENT.',
+  'EVASIVE MONKEYS DODGE SWINGS. SPELLS NEVER MISS. DO THE MATH.',
+  'BOSS SLAMS LAND INSIDE THE RING. BE SOMEWHERE ELSE.',
+  'FEET ARE A STAT. THE DROWNED STOOD STILL.',
+  'THE SHOPS HOLD THE TIDE OPEN WHILE YOU BROWSE. HAGGLE SLOWLY.',
+  'FRUIT IS FOREVER. JUICE IS FOR EMERGENCIES.',
+  'THE GHOST REMEMBERS EVERY SPLIT TIME. MAKE IT REGRET THAT.',
+  'SPLITTING JELLIES ARE TWO PROBLEMS IN A COAT. BRING A NOVA.',
+  'BIGS COST 8 PEARLS AND UNLOCK AT TIDE 8. SAVE LIKE YOU MEAN IT.',
+  'MILESTONE TIDES PAY DOUBLE PEARLS. 5 AND 10 ARE PAYDAY.',
+  'DRINK THE GUAVA AT HALF HEALTH, NOT AT NONE. CORPSES CANNOT SIP.',
+];
+let hintIdx = -1;
+let hintAt = 0;
 
 let sim = null;
 let scene = null;
@@ -72,16 +98,59 @@ function boot() {
     announce,
     onPlayAgain: () => { window.RESORT.setSeed(undefined); },
   });
+  initGhost({
+    getSim: () => sim,
+    announce,
+    onMoment: kind => AUDIO.moment(kind),
+  });
 
   resize();
   addEventListener('resize', resize);
   wireInput();
+  wireTitle();
   installDebugApi();
 
   announce(TXT('YOU WASHED ASHORE. THE SEA IS NOT DONE WITH YOU.'), PAL.gold, 5);
 
   lastMs = performance.now();
   requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------------------
+// THE TITLE — the wordmark over the postcard (§5). PLAY drops you at the
+// Forge; DAILY TIDE locks today's fixed seed so the ghost race is
+// apples-to-apples (same sea for everyone, all day).
+// ---------------------------------------------------------------------------
+function dailyLabel() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return 'DAILY-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate());
+}
+
+function showTitle(v) {
+  HUD.title.classList.toggle('show', v);
+  document.body.classList.toggle('titleup', v);
+}
+
+function wireTitle() {
+  const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const d = new Date();
+  HUD.titleDaily.textContent = TXT('DAILY TIDE') + ' · ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+  HUD.titleFoot.textContent = 'v' + VERSION + ' · ' + BUILD;
+  HUD.titlePlay.addEventListener('click', () => {
+    AUDIO.unlock();
+    AUDIO.moment('clear');
+    showTitle(false);
+    scene.setVista(false);
+  });
+  HUD.titleDaily.addEventListener('click', () => {
+    AUDIO.unlock();
+    AUDIO.moment('clear');
+    window.RESORT.setSeed(dailyLabel());
+    announce(TXT('THE DAILY TIDE — ONE SEA, ALL DAY. RACE THE GHOST FAIR.'), '#8CF0E4', 4);
+  });
+  showTitle(true);
+  scene.setVista(true);          // the title hangs over the postcard shot
 }
 
 function resize() {
@@ -114,6 +183,10 @@ function frame(nowMs) {
 
   consumeEvents();
   shopFrame();
+  ghostFrame();
+  AUDIO.frame(sim.S.phase);
+  // GOLD HOUR: milestone tides fight under the low sun (§5's gold-hour rim)
+  scene.setGoldHour(sim.S.phase === PHASE.TIDE && sim.S.tide % TUNE.milestoneEvery === 0);
   const alpha = paused ? 1 : Math.min(1, acc / TICK_MS);
   scene.draw(sim.S, alpha, tSec, dt);
   drawOverlay(alpha, dt);
@@ -127,6 +200,7 @@ function frame(nowMs) {
 function consumeEvents() {
   const S = sim.S;
   for (const e of sim.drainEvents()) {
+    ghostEvent(e);
     switch (e.type) {
       case 'surf_set':
         scene.popFoamRing(0, COVE.waterline + 1);
@@ -146,16 +220,24 @@ function consumeEvents() {
         scene.kick(0.06);
         pushFloat(S.hero.x, S.hero.z, '-' + e.amount, '#FF6B6B', 17);
         break;
-      case 'tide_start':
-        announce(tf(TXT('TIDE %1 — %2 ASHORE'), e.tide, e.quota), '#FFFFFF', 3);
+      case 'tide_start': {
+        const milestone = e.tide % TUNE.milestoneEvery === 0;
+        announce(tf(TXT('TIDE %1 — %2 ASHORE'), e.tide, e.quota),
+          milestone ? '#F5C542' : '#FFFFFF', 3, milestone || e.boss);
         scene.kick(0.12);
+        scene.setVista(false);
+        AUDIO.moment('tide_start');
         break;
+      }
       case 'tide_clear':
         announce(tf(TXT('TIDE %1 CLEARED  ·  +%2 GOLD  ·  +%3 PEARL  ·  +%4 XP'), e.tide, e.gold, e.pearls, e.xp), '#9CFF7A', 4);
+        AUDIO.moment('clear');
         break;
       case 'hero_down':
-        announce(TXT('WASHED OUT — THE SEA TAKES THIS TIDE BACK'), '#FF6B6B', 4);
+        announce(TXT('WASHED OUT — THE SEA TAKES THIS TIDE BACK'), '#FF6B6B', 4, true);
         scene.kick(0.4);
+        scene.setVista(true);       // death is a beauty shot, never a logout (§3)
+        AUDIO.moment('washout');
         break;
       case 'wash_up':
         announce(TXT('YOU WASH BACK UP THE BEACH. AGAIN.'), '#F5C542', 3);
@@ -164,6 +246,7 @@ function consumeEvents() {
       // --- link 2: the build ---
       case 'body_pick': {
         scene.setHeroBody(e.id);
+        scene.setVista(false);
         const b = BODIES.find(x => x.id === e.id);
         announce(tf(TXT('%1 STEPS OFF THE FORGE. TIDE 1 IS COMING.'), b ? TXT(b.name) : ''), '#E7C25C', 4);
         break;
@@ -184,6 +267,7 @@ function consumeEvents() {
       case 'level_up':
         announce(tf(TXT('LEVEL %1 — SKILL POINT EARNED'), e.level), '#F5C542', 2.6);
         scene.popRing(S.hero.x, S.hero.z, 0xF5C542, 1.1);
+        AUDIO.moment('level');
         break;
       case 'cast': {
         scene.popRing(e.x, e.z, parseInt((CAT_COLOR[e.cat] || '#FFFFFF').slice(1), 16), 0.5);
@@ -231,23 +315,26 @@ function consumeEvents() {
         break;
       case 'mod_tide': {
         const m = MOD[e.mod];
-        announce(tf(TXT('MODIFIER TIDE — %1: %2'), TXT(m.name), TXT(m.desc)), '#C77BE8', 5);
+        announce(tf(TXT('MODIFIER TIDE — %1: %2'), TXT(m.name), TXT(m.desc)), '#C77BE8', 5, true);
         break;
       }
       case 'boss_spawn':
-        announce(tf(TXT('%1 SURFACES'), TXT(e.name)), '#FF5B5B', 4.5);
+        announce(tf(TXT('%1 SURFACES'), TXT(e.name)), '#FF5B5B', 4.5, true);
         scene.kick(0.3);
+        AUDIO.moment('boss');
         break;
       case 'boss_down':
-        announce(tf(TXT('%1 GOES UNDER'), TXT(e.name)), '#F5C542', 4);
+        announce(tf(TXT('%1 GOES UNDER'), TXT(e.name)), '#F5C542', 4, true);
         scene.kick(0.2);
         break;
       case 'surge':
         announce(TXT('THE UNDERTOW CALLS ITS SWARM'), '#C77BE8', 3);
         break;
       case 'victory':
-        announce(TXT('TIDE 10 BROKEN — THE ISLAND RESPECTS YOU'), '#F5C542', 6);
+        announce(TXT('TIDE 10 BROKEN — THE ISLAND RESPECTS YOU'), '#F5C542', 6, true);
         scene.kick(0.25);
+        scene.setVista(true);       // the win earns the postcard too
+        AUDIO.moment('victory');
         break;
     }
   }
@@ -262,10 +349,11 @@ function pushFloat(x, z, txt, col, size) {
   floats.push({ x, z, txt, col, size, t: 0 });
 }
 
-function announce(text, col, secsShown) {
+function announce(text, col, secsShown, big) {
   HUD.ann.textContent = text;
   HUD.ann.style.color = typeof col === 'number' ? '#' + col.toString(16).padStart(6, '0') : col;
   HUD.ann.classList.add('show');
+  HUD.ann.classList.toggle('bigmoment', !!big);
   annUntil = tSec + (secsShown || 3);
 }
 
@@ -401,9 +489,19 @@ function drawHud() {
   const S = sim.S;
   const inTide = S.phase === PHASE.TIDE;
   const nextTide = inTide ? S.tide : S.tide + 1;
+
+  // the lifeguard rotates a hint every few seconds; both panels read the same one
+  if (tSec > hintAt) {
+    hintAt = tSec + 7;
+    hintIdx = (hintIdx + 1) % HINTS.length;
+    const h = TXT(HINTS[hintIdx]);
+    HUD.breakHint.textContent = '“' + h + '”';
+    HUD.downHint.textContent = '“' + h + '”';
+  }
+
   const key = [S.phase, S.tide, S.killed, S.quota, S.gold, S.pearls, S.kills,
     Math.round(S.hero.hp), S.hero.maxHp, Math.ceil(S.phaseTicks / SIM_HZ), S.creeps.length, S.queue,
-    S.level, S.xp, S.skillPts, S.bodyId, Math.round(S.hero.shield)].join('|');
+    S.level, S.xp, S.skillPts, S.bodyId, Math.round(S.hero.shield), S.hero.dead].join('|');
 
   if (key !== lastHud) {
     lastHud = key;
@@ -431,14 +529,20 @@ function drawHud() {
     HUD.pts.style.display = S.skillPts > 0 ? 'block' : 'none';
     HUD.pts.textContent = '+' + S.skillPts;
 
+    // A washout owns the whole wait: the vista, the countdown, no shop panel.
+    const downNow = S.phase === PHASE.WASHOUT || (S.phase === PHASE.BREAK && S.hero.dead);
     const onBreak = S.phase === PHASE.BREAK;
-    HUD.breakPanel.classList.toggle('show', onBreak && !anyShopOpen());
+    HUD.breakPanel.classList.toggle('show', onBreak && !S.hero.dead && !anyShopOpen());
     if (onBreak) {
       HUD.breakTimer.textContent = String(Math.ceil(S.phaseTicks / SIM_HZ));
       HUD.breakTide.textContent = tf(TXT('TIDE %1  ·  %2 WASH ASHORE  ·  %3 HP EACH'),
         nextTide, tideQuota(nextTide), creepHp(nextTide));
     }
-    HUD.downPanel.classList.toggle('show', S.phase === PHASE.WASHOUT);
+    HUD.downPanel.classList.toggle('show', downNow);
+    if (downNow) {
+      const ticksLeft = S.phaseTicks + (S.phase === PHASE.WASHOUT ? TUNE.deadBreakTicks : 0);
+      HUD.downCount.textContent = mmss(ticksLeft);
+    }
     HUD.barnote.style.display = Object.values(S.slots).some(v => v) ? 'none' : 'block';
   }
 
@@ -491,6 +595,10 @@ function wireInput() {
     if (sim.order(g.x, g.z)) scene.markClick(sim.S.hero.tx, sim.S.hero.tz);
   };
 
+  // the first gesture of any kind opens the bar (autoplay law)
+  addEventListener('pointerdown', () => AUDIO.unlock(), { once: true });
+  addEventListener('keydown', () => AUDIO.unlock(), { once: true });
+
   canvas.addEventListener('pointerdown', e => {
     if (e.button !== 0 && e.button !== 2) return;
     held = true;
@@ -512,6 +620,10 @@ function wireInput() {
     if (k === ' ' || k === 'enter') { if (sim.skipTide()) e.preventDefault(); }
     if (k === 'escape') closeShops();
     if (k === 'c') toggleCastaway();
+    if (k === 'm') {
+      const m = AUDIO.toggleMute();
+      announce(m ? TXT('SOUND OFF — THE SEA GOES QUIET') : TXT('SOUND ON — STEEL PANS AND BAD NEWS'), '#8CF0E4', 2);
+    }
     if (k >= '1' && k <= '6') useItemSlot(Number(k) - 1);
     if ('qwer'.includes(k) && k.length === 1) {
       const K = k.toUpperCase();
@@ -593,16 +705,35 @@ function installDebugApi() {
     setHold(v) { return sim.setHold(v); },
 
     // Rebuild the run from a seed. Returns the seed OBJECT, v-field and all.
+    // The outgoing run folds into the ghost record first — a run you abandon
+    // at tide 7 still counts if it went deepest.
     setSeed(s) {
+      const prevS = sim.S;
       sim = createSim(makeSeed(s));
       floats.length = 0;
       warns.length = 0;
       beams.length = 0;
       lastHud = '';
       scene.setHeroBody(null);
+      scene.setVista(false);
+      showTitle(false);
+      ghostRunStart(prevS);
       HUD.seedLabel.textContent = sim.S.seed.label;
       return sim.S.seed;
     },
+
+    // today's fixed sea — the apples-to-apples ghost race
+    setDaily() { return this.setSeed(dailyLabel()); },
+    dailyLabel,
+
+    // presentation debug surfaces the battery leans on
+    ghost: ghostDebug,
+    audio: AUDIO,
+    get titleUp() { return HUD.title.classList.contains('show'); },
+    showTitle,
+    get vistaK() { return scene.vistaK; },
+    get goldK() { return scene.goldK; },
+    get renderInfo() { return scene.renderer.info.render; },
 
     snapshot() { return sim.snapshot(); },
     // Re-resolve every static string through TXT(). A language switch will

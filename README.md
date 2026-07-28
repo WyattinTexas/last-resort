@@ -10,16 +10,17 @@ A zero-install browser game — one page, three.js, **no build step, no backend*
 
 ---
 
-## Status — P0, link 2 of 3
+## Status — P0 COMPLETE (3 links)
 
-Link 1 built the cove, the deterministic sim and the tide spawner. **Link 2 is the
-game**: the Forge, the boardwalk, and ten full tides with something waiting at the end.
+Link 1 built the cove, the deterministic sim and the tide spawner. Link 2 built the
+game. **Link 3 finished it**: the ghost race, the title, the juice, the death
+spectacle — the P0 slice is whole.
 
 | | |
 |---|---|
 | ✅ link 1 | island cove scene, 20Hz deterministic sim, click-to-move hero with auto-attack, tide/surf-set spawner, shop-break loop, gold + pearls, `RESORT.*` debug API, headless CDP smoke test, i18n rails, `?v=` cache-bust |
 | ✅ link 2 | **THE FORGE** (3 bodies, each a statline + one tiny innate) · **16 spells as shop items** on four walkable boardwalk racks (STRIKE / GUARD / CURRENT / DEEP), all driven by ONE data-driven engine · pearls buy breadth, XP → skill points → ranks buy depth · **100g Tide Tablet respec** (full pearl refund — sacred) · fruit stand (3 stats, rank 50) · Surf Shack (8 items, 6 slots) · QWER smart-cast at the hover point + cooldown HUD · **boss tides 5 & 10** with reduced quotas · **modifier tides** from 6 (Bash Crabs / Evasive Monkeys / Splitting Jellies) · tide 10 finale + victory screen |
-| 🔜 link 3 | ghost standings, UI pass, playtest, fun-gate report |
+| ✅ link 3 | **THE GHOST RACE** — your best run persists locally, the standings board is always on screen racing you tide-for-tide, lead changes get called in the ticker · **DAILY TIDE** (one fixed seed all day, apples-to-apples) · title screen wordmark over the vista · **death spectacle** (camera pulls to the postcard + a washed-up-next-tide countdown — death is never a logout) · WebAudio steel-pan idle + drum swells, all synthesized · gold-hour rim light on milestone tides · lifeguard hint ticker · static dressing baked to ~12 draw calls |
 
 ### Controls
 - **Click** (either button) anywhere on the sand to move. Hold and drag to keep repathing.
@@ -29,6 +30,7 @@ game**: the Forge, the boardwalk, and ten full tides with something waiting at t
   holds while a rack is open: the tide waits while you haggle.
 - **C** — the castaway sheet (stats, ranks, respec). **1–6** — drink a slotted juice.
 - **Space / Enter** — call the next tide in early. **Esc** — wave the shopkeeper off.
+- **M** — sound on/off (everything is synthesized in WebAudio; there are no audio files).
 
 ### Try it
 ```

@@ -63,6 +63,53 @@ canvas#overlay{position:fixed; inset:0; pointer-events:none; z-index:2}
      border-top:1px solid rgba(231,194,92,.5); border-bottom:1px solid rgba(231,194,92,.5);
      text-shadow:0 2px 0 rgba(0,0,0,.6); white-space:nowrap; max-width:92vw; overflow:hidden}
 #ann.show{opacity:1; transform:translate(-50%,0)}
+/* the BIG moments: bosses, milestones, lead changes. Louder, gold-framed. */
+#ann.bigmoment{font-size:29px; padding:12px 34px; letter-spacing:.1em;
+     border-top:2px solid var(--gold); border-bottom:2px solid var(--gold);
+     box-shadow:0 0 36px rgba(231,194,92,.3), inset 0 0 22px rgba(231,194,92,.08)}
+
+/* --- standings board (§4: ALWAYS visible — you vs the ghost, tide for tide) --- */
+#standings{position:absolute; top:122px; left:12px; width:212px; padding:8px 11px 9px; display:none}
+#standings.show{display:block}
+#standings .shead{display:flex; align-items:baseline; gap:6px}
+#st-lead{margin-left:auto; font-size:10px; font-weight:900; letter-spacing:.05em}
+#st-lead.you{color:var(--good)} #st-lead.ghost{color:var(--bad)}
+#st-rows{margin-top:5px}
+.strow{display:flex; gap:5px; font-size:10.5px; line-height:1.6; letter-spacing:.03em}
+.strow.head{font-size:8px; letter-spacing:.15em; color:var(--gold); font-weight:900;
+            border-bottom:1px solid rgba(231,194,92,.32); margin-bottom:2px; padding-bottom:2px}
+.strow .stt{width:20px; color:var(--gold); font-weight:900; flex:none}
+.strow .sty,.strow .stg{flex:1; text-align:right; color:rgba(247,251,255,.88)}
+.strow .stg{color:rgba(140,240,228,.8)}
+.strow .win{color:var(--good); font-weight:900}
+.strow .lose{opacity:.55}
+.strow.now{background:rgba(231,194,92,.12); margin:0 -5px; padding:0 5px}
+#st-foot{margin-top:5px; font-size:8px; letter-spacing:.1em; color:rgba(231,194,92,.68); font-weight:700}
+
+/* --- THE TITLE: wordmark over the postcard vista (§5) --- */
+#title{position:fixed; inset:0; z-index:7; display:none; place-items:center; text-align:center;
+  background:linear-gradient(180deg, rgba(6,32,43,.5), rgba(6,32,43,0) 26%, rgba(6,32,43,0) 60%, rgba(4,18,26,.78))}
+#title.show{display:grid}
+body.titleup #hud{display:none}
+body.titleup #forge{display:none}   /* the postcard, not the menu, sells the title */
+#wordmark{user-select:none; line-height:.92}
+#wm-top,#wm-bot{font-weight:900; color:#F7FBFF; letter-spacing:.22em; text-indent:.22em;
+  -webkit-text-stroke:2px rgba(110,84,21,.95);
+  text-shadow:0 4px 0 #0A3B4C, 0 7px 0 rgba(4,24,34,.9), 0 14px 30px rgba(0,0,0,.55)}
+#wm-top{font-size:min(12vw,86px)}
+#wm-bot{font-size:min(16vw,118px); color:#FFEFB8}
+#wm-rule{width:min(430px,70vw); height:3px; margin:16px auto 10px;
+  background:linear-gradient(90deg, transparent, var(--gold) 18%, var(--gold) 82%, transparent);
+  box-shadow:0 2px 0 rgba(0,0,0,.4)}
+#wm-tag{font-size:12px; letter-spacing:.28em; color:var(--sea); font-weight:900; text-shadow:0 2px 0 rgba(4,24,34,.9)}
+#title-btns{display:flex; gap:14px; justify-content:center; margin-top:30px}
+#title-btns .btn{font-size:19px; padding:15px 44px}
+#title-btns .btn.blue{background:linear-gradient(180deg,#9FDCFF,#3E8EC4); border-color:#C8ECFF;
+  box-shadow:0 4px 0 #1E4A6E, inset 0 1px 0 rgba(255,255,255,.6); font-size:14px; padding:13px 22px}
+#title-ghost{margin-top:22px; font-size:11px; letter-spacing:.12em; color:rgba(231,194,92,.85); font-weight:700;
+  text-shadow:0 2px 0 rgba(4,24,34,.9)}
+#title-foot{position:fixed; bottom:14px; left:0; right:0; text-align:center; font-size:10px;
+  letter-spacing:.14em; color:rgba(247,251,255,.5); font-weight:700}
 
 /* --- bottom-left: the castaway --- */
 #herobox{position:absolute; left:12px; bottom:12px; padding:9px 13px 11px; width:262px}
@@ -102,6 +149,9 @@ button.btn:active{transform:translateY(3px); box-shadow:0 1px 0 #6E5415, inset 0
 #down-panel{border-color:#8A2E2E; box-shadow:inset 0 0 0 1px rgba(255,107,107,.35), 0 4px 0 rgba(0,0,0,.35)}
 #down-text{font-size:26px; font-weight:900; color:var(--bad); letter-spacing:.05em}
 #down-sub{font-size:12px; letter-spacing:.1em; margin-top:8px; color:rgba(247,251,255,.8)}
+#down-count{font-size:52px; font-weight:900; line-height:1.1; color:var(--gold); text-shadow:0 3px 0 #06202b; margin-top:8px}
+#down-hint{font-size:10px; letter-spacing:.08em; margin-top:10px; color:rgba(140,240,228,.8); font-weight:700}
+#break-hint{margin-top:11px; font-size:10px; letter-spacing:.08em; color:rgba(140,240,228,.85); font-weight:700}
 
 /* --- bottom-right: build stamp + seed --- */
 #stamp{position:absolute; right:12px; bottom:12px; text-align:right; font-size:10px;
@@ -217,6 +267,9 @@ button.sbtn.blue{background:linear-gradient(180deg,#9FDCFF,#3E8EC4); border-colo
   #tidebox{min-width:168px} #hud-tide{font-size:26px}
   #herobox{width:200px} .slot{width:46px;height:46px} .slot.big{width:52px;height:52px}
   #ann{font-size:14px; top:74px}
+  #ann.bigmoment{font-size:19px; padding:9px 18px}
+  #standings{top:104px; width:168px; padding:6px 8px 7px}
+  .strow{font-size:9px}
 }
 </style>
 </head>
@@ -243,6 +296,15 @@ button.sbtn.blue{background:linear-gradient(180deg,#9FDCFF,#3E8EC4); border-colo
   </div>
 
   <div id="ann"></div>
+
+  <div id="standings" class="panel">
+    <div class="shead">
+      <div class="label" data-txt="STANDINGS">STANDINGS</div>
+      <div id="st-lead" data-notr></div>
+    </div>
+    <div id="st-rows"></div>
+    <div id="st-foot" data-notr></div>
+  </div>
 
   <div id="herobox" class="panel">
     <div class="label" id="hud-body" data-txt="THE CASTAWAY">THE CASTAWAY</div>
@@ -291,12 +353,16 @@ button.sbtn.blue{background:linear-gradient(180deg,#9FDCFF,#3E8EC4); border-colo
     <div id="break-timer" data-notr>25</div>
     <div id="break-next" data-notr></div>
     <div id="shop-stub" data-txt="THE BOARDWALK IS OPEN — WALK TO A STALL. THE TIDE WAITS WHILE YOU HAGGLE.">THE BOARDWALK IS OPEN — WALK TO A STALL. THE TIDE WAITS WHILE YOU HAGGLE.</div>
+    <div id="break-hint" data-notr></div>
     <button class="btn" id="break-skip" data-txt="CALL IT IN  ·  SPACE">CALL IT IN · SPACE</button>
   </div>
 
   <div id="down-panel" class="panel">
     <div id="down-text" data-txt="WASHED OUT">WASHED OUT</div>
-    <div id="down-sub" data-txt="The sea drags this tide back. You wash ashore again with the next one.">The sea drags this tide back. You wash ashore again with the next one.</div>
+    <div id="down-sub" data-txt="The sea drags this tide back. Watch the island breathe.">The sea drags this tide back. Watch the island breathe.</div>
+    <div class="label" style="margin-top:12px" data-txt="YOU WASH UP NEXT TIDE IN">YOU WASH UP NEXT TIDE IN</div>
+    <div id="down-count" data-notr>0:12</div>
+    <div id="down-hint" data-notr></div>
   </div>
 
   <div id="stamp">
@@ -320,8 +386,26 @@ button.sbtn.blue{background:linear-gradient(180deg,#9FDCFF,#3E8EC4); border-colo
     <div class="fsub" data-txt="TEN TIDES BROKEN. THE SEA WILL REMEMBER THIS.">TEN TIDES BROKEN. THE SEA WILL REMEMBER THIS.</div>
     <div id="victory-stats"></div>
     <div id="victory-build" data-notr></div>
+    <div id="victory-ghost" data-notr style="margin-top:12px; font-size:12px; font-weight:900; letter-spacing:.08em; color:var(--sea)"></div>
     <button class="btn" id="victory-again" data-txt="BACK TO THE FORGE">BACK TO THE FORGE</button>
   </div>
+</div>
+
+<div id="title">
+  <div>
+    <div id="wordmark" data-notr>
+      <div id="wm-top">LAST</div>
+      <div id="wm-bot">RESORT</div>
+    </div>
+    <div id="wm-rule"></div>
+    <div id="wm-tag" data-txt="EIGHT CASTAWAYS. ONE ISLAND. THE SEA KEEPS SCORE.">EIGHT CASTAWAYS. ONE ISLAND. THE SEA KEEPS SCORE.</div>
+    <div id="title-btns">
+      <button class="btn" id="title-play" data-txt="PLAY">PLAY</button>
+      <button class="btn blue" id="title-daily" data-notr></button>
+    </div>
+    <div id="title-ghost" data-notr></div>
+  </div>
+  <div id="title-foot" data-notr></div>
 </div>
 
 <div id="boot-error">
@@ -332,17 +416,19 @@ button.sbtn.blue{background:linear-gradient(180deg,#9FDCFF,#3E8EC4); border-colo
   </div>
 </div>
 
-<script>window.__RESORT_BUILD='20260727210854';</script>
+<script>window.__RESORT_BUILD='20260727215210';</script>
 <script type="importmap">
 {
   "imports": {
-    "three":        "./vendor/three.module.min.js?v=20260727210854",
-    "./js/i18n.js": "./js/i18n.js?v=20260727210854",
-    "./js/rng.js":  "./js/rng.js?v=20260727210854",
-    "./js/data.js": "./js/data.js?v=20260727210854",
-    "./js/sim.js":  "./js/sim.js?v=20260727210854",
-    "./js/scene.js":"./js/scene.js?v=20260727210854",
-    "./js/shop.js": "./js/shop.js?v=20260727210854"
+    "three":        "./vendor/three.module.min.js?v=20260727215210",
+    "./js/i18n.js": "./js/i18n.js?v=20260727215210",
+    "./js/rng.js":  "./js/rng.js?v=20260727215210",
+    "./js/data.js": "./js/data.js?v=20260727215210",
+    "./js/sim.js":  "./js/sim.js?v=20260727215210",
+    "./js/scene.js":"./js/scene.js?v=20260727215210",
+    "./js/shop.js": "./js/shop.js?v=20260727215210",
+    "./js/ghost.js":"./js/ghost.js?v=20260727215210",
+    "./js/audio.js":"./js/audio.js?v=20260727215210"
   }
 }
 </script>
@@ -354,7 +440,7 @@ button.sbtn.blue{background:linear-gradient(180deg,#9FDCFF,#3E8EC4); border-colo
     if (d && !d.textContent) d.textContent = String((e && e.message) || e);
     document.getElementById('boot-error').classList.add('show');
   });
-  import('./js/game.js?v=20260727210854').catch(err => {
+  import('./js/game.js?v=20260727215210').catch(err => {
     document.getElementById('boot-error-detail').textContent = String(err && err.message || err);
     document.getElementById('boot-error').classList.add('show');
   });

@@ -51,6 +51,9 @@ export const TUNE = {
   coveCap: 40,            // CONCURRENT cap per cove; the rest waits in the queue (SQ_CAP law)
   breakTicks: secs(25),   // 25s shop break between tides, skippable
   washoutTicks: secs(3),  // hero down: the tide drags back out to sea
+  deadBreakTicks: secs(12), // the break AFTER a washout: you are dead on the
+                            // sand and cannot shop, so 25s would be a timeout,
+                            // not a breather. TUNE deviation, logged in memory.
   milestoneEvery: 5,      // milestone tides pay double pearls
 
   // --- economy (§6) ---
@@ -162,6 +165,10 @@ export function createSim(seedInput) {
     cleared: 0,                  // tides actually CLEARED. Monotonic — a washout
                                  // rolls `tide` back, but never this. Standings
                                  // and tests both want the honest count.
+    tideLog: {},                 // tide -> { tick, kills, worth } at the moment
+                                 // of clear. THE standings record: the ghost
+                                 // race reads this and nothing else. Washout
+                                 // retries fold into the same entry's time.
     quota: 0,
     spawned: 0,
     killed: 0,
@@ -447,6 +454,9 @@ function clearTide(S) {
   S.pearls += pearls;
   S.cleared++;
   if (S.tide > S.bestTide) S.bestTide = S.tide;
+  // the standings entry: when, how bloody, how rich. Net worth counts the gear
+  // at purchase price — spending gold must never LOWER a standings line.
+  S.tideLog[S.tide] = { tick: S.tick, kills: S.kills, worth: S.gold + S.ledger.spent };
   const xp = clearXp(S.tide);
   gainXp(S, xp);
   ev(S, 'tide_clear', { tide: S.tide, gold, pearls, xp });
@@ -461,6 +471,7 @@ function clearTide(S) {
       body: S.bodyId,
       spells: Object.keys(S.spells).map(id => ({ id, rank: S.spells[id].rank })),
       fruit: { ...S.fruit },
+      tideLog: JSON.parse(JSON.stringify(S.tideLog)),   // the ghost record
     };
     ev(S, 'victory', { stats: S.victory });
     return;
@@ -500,7 +511,10 @@ function endWashout(S) {
   for (const c of S.creeps) { c.dead = true; c.receded = true; }  // no bounty for a tide you lost
   S.queue = 0;
   S.phase = PHASE.BREAK;
-  S.phaseTicks = TUNE.breakTicks;
+  // You are DEAD on this break — no shopping, just the vista and the countdown
+  // (death is a spectacle, never a logout, §3). The full 25s would be a
+  // timeout; the hero stays down until the next tide actually starts.
+  S.phaseTicks = TUNE.deadBreakTicks;
 }
 
 // ---------------------------------------------------------------------------
