@@ -143,6 +143,14 @@ const main = async () => {
   await sleep(1200);
   await snap('standings.png');
 
+  // 3.5 THE MARKET (rev 1) — ported in on the break, standing at a rack with
+  // the sheet open. The auto-hold keeps the tide waiting for the photo.
+  await evalJs('RESORT.state.hero.x = -6.5; RESORT.state.hero.z = 6; 1');
+  await sleep(1800);
+  await snap('market.png');
+  await evalJs('RESORT.state.hero.x = 0; RESORT.state.hero.z = -14; 1');
+  await sleep(600);
+
   // 4. MID-TIDE COMBAT — tide 3, spells flying
   await evalJs(`(()=>{
     RESORT.pause(true);

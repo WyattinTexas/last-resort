@@ -31,6 +31,10 @@ export const RULES = {
   bossQuotaDiv: 2,        // boss tides run a reduced quota (§6): ceil(quota / this)
   modFromTide: 6,         // modifier tides from tide 6, every ~3 (§6) -> 6 and 9 in P0
   modEvery: 3,
+  maxPlayers: 16,         // hard cap on squares around the market (rev 1). Rooms
+                          // can seat fewer; the shore never grows past sixteen.
+  multiEdgeFromTide: 3,   // tides 1-2 break out of the sea only (the taught
+                          // front); from here every surf-set rolls its own fence
 };
 
 // value = a + b × (rank-1)
@@ -233,18 +237,21 @@ export const BOSSES = {
 };
 
 // ---------------------------------------------------------------------------
-// THE BOARDWALK — six tiki stalls ringing the cove (§4: the vendor boardwalk is
-// PHYSICAL, walkable space). All of them stand BEHIND the fence/jungle line
-// (link 1's hard lesson: dressing inside the play area eats the screen); the
-// hero shops from the sand by standing close.
+// THE MARKET STALLS (rev 1) — all six shops stand together in the central
+// market plaza now, TFT-carousel style: between tides every castaway is ported
+// to the middle of the island to spend, then ported home when the next tide
+// rolls. Coordinates are MARKET-LOCAL metres (plaza centre = 0,0; the port-in
+// point is on the south/sea side): four racks fan across the back arc, the
+// fruit stand and surf shack flank the entrance. Shopping is still walkable
+// and proximity-opened (§4) — the ritual moved, it did not die.
 // ---------------------------------------------------------------------------
 export const STALLS = [
-  { id: 'strike',  name: 'STRIKE RACK',  ico: '🔥', x: -16.5, z: 24.6, color: 0xF06A3C, kind: 'rack' },
-  { id: 'guard',   name: 'GUARD RACK',   ico: '🛡️', x: -5.5,  z: 25.4, color: 0x4FA8E8, kind: 'rack' },
-  { id: 'current', name: 'CURRENT RACK', ico: '🌊', x: 5.5,   z: 25.4, color: 0x59DCD2, kind: 'rack' },
-  { id: 'deep',    name: 'DEEP RACK',    ico: '☄️', x: 16.5,  z: 24.6, color: 0xE7C25C, kind: 'rack' },
-  { id: 'fruit',   name: 'FRUIT STAND',  ico: '🥭', x: -29.5, z: 7,    color: 0xF0455C, kind: 'fruit' },
-  { id: 'shack',   name: 'SURF SHACK',   ico: '🐚', x: 29.5,  z: 7,    color: 0x9A6B3F, kind: 'shack' },
+  { id: 'strike',  name: 'STRIKE RACK',  ico: '🔥', x: -18,  z: 3,   color: 0xF06A3C, kind: 'rack' },
+  { id: 'guard',   name: 'GUARD RACK',   ico: '🛡️', x: -6.5, z: 9,   color: 0x4FA8E8, kind: 'rack' },
+  { id: 'current', name: 'CURRENT RACK', ico: '🌊', x: 6.5,  z: 9,   color: 0x59DCD2, kind: 'rack' },
+  { id: 'deep',    name: 'DEEP RACK',    ico: '☄️', x: 18,   z: 3,   color: 0xE7C25C, kind: 'rack' },
+  { id: 'fruit',   name: 'FRUIT STAND',  ico: '🥭', x: -15,  z: -11, color: 0xF0455C, kind: 'fruit' },
+  { id: 'shack',   name: 'SURF SHACK',   ico: '🐚', x: 15,   z: -11, color: 0x9A6B3F, kind: 'shack' },
 ];
 export const STALL_REACH = 6.0;   // metres from stall centre that counts as "at the counter"
 

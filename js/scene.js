@@ -134,7 +134,7 @@ function makeBlobTexture(inner, outer) {
 // Flat-lit, no PBR anywhere in this file. Lambert is the whole lighting model.
 const lam = (color, flat) => new THREE.MeshLambertMaterial({ color: C(color), flatShading: flat !== false });
 
-export function createScene(canvas, COVE) {
+export function createScene(canvas, COVE, MARKET) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -152,12 +152,19 @@ export function createScene(canvas, COVE) {
   // steeper than 55 and the sea vanishes off the top of the frame entirely;
   // shallower and it stops reading as an RTS. 49 keeps a band of surf and
   // horizon in shot while the cove still lies flat enough to fight on.
-  const CAM = { pitch: THREE.MathUtils.degToRad(49), dist: 56, look: new THREE.Vector3(0, 0, -3) };
+  // CAM.flip (rev 1): +1 in the square — the camera stands inland and looks
+  // OUT TO SEA, the classic postcard. -1 in the market — it swings around and
+  // looks INTO the island, so the rack arc and the beacon fill the frame.
+  // The swing eases through nearly-overhead during the port glide.
+  const CAM = { pitch: THREE.MathUtils.degToRad(49), dist: 56, flip: 1, look: new THREE.Vector3(0, 0, -3) };
   function placeCamera() {
+    // never let the offset hit zero mid-swing: a straight-down lookAt rolls
+    // the camera on the up-vector singularity
+    const f = (CAM.flip < 0 ? -1 : 1) * Math.max(0.12, Math.abs(CAM.flip));
     camera.position.set(
       CAM.look.x,
       CAM.look.y + Math.sin(CAM.pitch) * CAM.dist,
-      CAM.look.z + Math.cos(CAM.pitch) * CAM.dist
+      CAM.look.z + Math.cos(CAM.pitch) * CAM.dist * f
     );
     camera.lookAt(CAM.look);
   }
@@ -176,6 +183,14 @@ export function createScene(canvas, COVE) {
   scene.add(rim);
 
   const paletteTex = makePaletteTexture();
+
+  // --- REV 1 WORLD LAYOUT. YOUR square sits exactly where the cove always
+  // was (identity transform — the sim's square frame IS world space, sea at
+  // -z), the MARKET plaza sits inland behind the jungle line at MK, and the
+  // other fifteen squares run down the shore at SEAT_PITCH intervals. The
+  // sim thinks in local frames; this file decides where those frames stand.
+  const MK = { x: 0, z: 64 };
+  const SEAT_PITCH = 56;      // square centres are 56m apart down the shore
 
   // --- SKY DOME: painted gradient on the inside of a sphere ---
   const sky = new THREE.Mesh(
@@ -198,9 +213,9 @@ export function createScene(canvas, COVE) {
   // -------------------------------------------------------------------------
   const waterTexA = makeWaterTexture();
   const waterTexB = makeWaterTexture();
-  waterTexA.repeat.set(5, 5);
-  waterTexB.repeat.set(3, 3);
-  const waterGeo = new THREE.PlaneGeometry(240, 200, 44, 34);
+  waterTexA.repeat.set(21, 5);
+  waterTexB.repeat.set(13, 3);
+  const waterGeo = new THREE.PlaneGeometry(1000, 200, 60, 34);   // the sea fronts all sixteen squares
   waterGeo.rotateX(-Math.PI / 2);
   const waterBase = waterGeo.attributes.position.array.slice();
   const water = new THREE.Mesh(waterGeo, new THREE.MeshLambertMaterial({
@@ -232,10 +247,14 @@ export function createScene(canvas, COVE) {
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), wz = p.getZ(i) + SAND_CZ;
       // The beach shelves down into the sea, rises into dunes inland, and is
-      // dead flat across the middle where the fight happens.
+      // dead flat across the middle where the fight happens. Rev 1: the dunes
+      // also flatten inside the MARKET CLEARING — the inland rise otherwise
+      // grows unbounded and buries the plaza under nine metres of sand
+      // (it did; the beacon tip was the only survivor).
       const shelf = -Math.max(0, (COVE.waterline + 1 - wz)) * 0.22;
-      const dune = Math.max(0, (wz - COVE.inland + 5) * 0.19)
-                 + Math.sin(x * 0.21) * Math.max(0, (wz - COVE.inland + 9)) * 0.045;
+      const clear = THREE.MathUtils.smoothstep(Math.hypot(x - MK.x, wz - MK.z), 34, 50);
+      const dune = (Math.max(0, (wz - COVE.inland + 5) * 0.19)
+                 + Math.sin(x * 0.21) * Math.max(0, (wz - COVE.inland + 9)) * 0.045) * clear;
       p.setY(i, shelf + dune);
       const wet = THREE.MathUtils.smoothstep(wz, COVE.waterline - 1, COVE.waterline + 6);
       const c = C(PAL.sandWet).lerp(C(PAL.sand), wet);
@@ -251,13 +270,61 @@ export function createScene(canvas, COVE) {
   sand.position.set(0, 0, SAND_CZ);
   scene.add(sand);
 
+  // --- THE LONG SHORE (rev 1): the beach keeps going under the other fifteen
+  // squares. Same shelf/dune/wet-band math, coarser mesh, no grain — past the
+  // fog line nobody counts vertices.
+  for (const [x0, x1] of [[41, 476], [-476, -41]]) {
+    const w = x1 - x0, cx = (x0 + x1) / 2;
+    const g2 = new THREE.PlaneGeometry(w, 96, Math.max(8, Math.round(w / 9)), 12);
+    g2.rotateX(-Math.PI / 2);
+    const p2 = g2.attributes.position;
+    const col2 = [];
+    for (let i = 0; i < p2.count; i++) {
+      const wx = p2.getX(i) + cx, wz = p2.getZ(i) + SAND_CZ;
+      const shelf = -Math.max(0, (COVE.waterline + 1 - wz)) * 0.22;
+      const clear = THREE.MathUtils.smoothstep(Math.hypot(wx - MK.x, wz - MK.z), 34, 50);
+      const dune = (Math.max(0, (wz - COVE.inland + 5) * 0.19)
+                 + Math.sin(wx * 0.21) * Math.max(0, (wz - COVE.inland + 9)) * 0.045) * clear;
+      p2.setY(i, shelf + dune);
+      const wet = THREE.MathUtils.smoothstep(wz, COVE.waterline - 1, COVE.waterline + 6);
+      const c = C(PAL.sandWet).lerp(C(PAL.sand), wet);
+      if (wz > COVE.waterline + 14) c.lerp(C(PAL.sandLit), Math.min(1, (wz - COVE.waterline - 14) / 22));
+      col2.push(c.r, c.g, c.b);
+    }
+    g2.setAttribute('color', new THREE.Float32BufferAttribute(col2, 3));
+    g2.computeVertexNormals();
+    const m2 = new THREE.Mesh(g2, sand.material);
+    m2.position.set(cx, -0.01, SAND_CZ);
+    scene.add(m2);
+  }
+
+  // --- MARKET GROUND (rev 1): a sand apron under the whole clearing, the
+  // bright plaza floor on top, and a boardwalk-edge ring.
+  {
+    const apron = new THREE.Mesh(new THREE.CircleGeometry(46, 24), lam(PAL.sand));
+    apron.rotation.x = -Math.PI / 2;
+    apron.position.set(MK.x, 0.005, MK.z);
+    scene.add(apron);
+    const plaza = new THREE.Mesh(new THREE.CircleGeometry(27, 30), lam(PAL.sandLit));
+    plaza.rotation.x = -Math.PI / 2;
+    plaza.position.set(MK.x, 0.04, MK.z);
+    scene.add(plaza);
+    const edge = new THREE.Mesh(new THREE.RingGeometry(20.6, 21.7, 34),
+      new THREE.MeshBasicMaterial({ color: C(PAL.post), transparent: true, opacity: 0.5, depthWrite: false }));
+    edge.rotation.x = -Math.PI / 2;
+    edge.position.set(MK.x, 0.07, MK.z);
+    scene.add(edge);
+  }
+
   // -------------------------------------------------------------------------
   // FOAM — the white line where the tide breaks, plus the rings a surf-set
   // punches through it as it lands (§5: "white foam where tides spawn").
   // -------------------------------------------------------------------------
   const foamTex = makeBlobTexture('rgba(255,255,255,0.95)', 'rgba(255,255,255,0)');
+  foamTex.wrapS = THREE.RepeatWrapping;
+  foamTex.repeat.set(11, 1);            // soft foam dashes down the whole shore
   const foamBand = new THREE.Mesh(
-    new THREE.PlaneGeometry(COVE.halfWidth * 2 + 40, 10, 1, 1),
+    new THREE.PlaneGeometry(1000, 10, 1, 1),
     new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.55, depthWrite: false, map: foamTex })
   );
   foamBand.rotation.x = -Math.PI / 2;
@@ -299,10 +366,10 @@ export function createScene(canvas, COVE) {
   scene.add(dressing);
 
   // nothing grows through a shop: dressing placement keeps a clear ring
-  // around every boardwalk stall
+  // around every market stall (stall coords are MARKET-local; compare in world)
   function nearStall(x, z) {
     for (const s of STALLS) {
-      const dx = x - s.x, dz = z - s.z;
+      const dx = x - (MK.x + s.x), dz = z - (MK.z + s.z);
       if (dx * dx + dz * dz < 4.6 * 4.6) return true;
     }
     return false;
@@ -352,22 +419,25 @@ export function createScene(canvas, COVE) {
     dressing.add(r);
   }
 
-  // rope-post fences down both flanks of the cove (§5 — the FFX Besaid tell)
-  function fenceRun(x, z0, z1, posts) {
-    const dz = (z1 - z0) / (posts - 1);
+  // rope-post fences (§5 — the FFX Besaid tell). Rev 1 generalises the run to
+  // any two points: every square is fenced on three sides now (the sea edge
+  // stays the open door). segs=3 gives the rope its sag; the vacant squares
+  // down the shore run segs=1 — straight rope reads fine past the fog line.
+  function fenceRun(x0, z0, x1, z1, posts, segs) {
+    const N = segs || 3;
     const tops = [];
     for (let i = 0; i < posts; i++) {
-      const z = z0 + dz * i;
+      const t = i / (posts - 1);
+      const x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t;
       const hh = 1.5 + ((i * 7) % 3) * 0.08;
       const p = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, hh, 6), lam(PAL.post));
       p.position.set(x, hh / 2, z);
       dressing.add(p);
       tops.push(new THREE.Vector3(x, hh * 0.88, z));
     }
-    // the rope sags between posts — three short segments per span reads as a curve
+    // the rope sags between posts — short segments per span read as a curve
     for (let i = 0; i < tops.length - 1; i++) {
       const a = tops[i], b = tops[i + 1];
-      const N = 3;
       for (let k = 0; k < N; k++) {
         const t0 = k / N, t1 = (k + 1) / N;
         const p0 = a.clone().lerp(b, t0), p1 = a.clone().lerp(b, t1);
@@ -381,8 +451,46 @@ export function createScene(canvas, COVE) {
       }
     }
   }
-  fenceRun(-COVE.halfWidth, COVE.waterline + 5, COVE.inland - 1, 10);
-  fenceRun(COVE.halfWidth, COVE.waterline + 5, COVE.inland - 1, 10);
+  fenceRun(-COVE.halfWidth, COVE.waterline + 5, -COVE.halfWidth, COVE.inland - 1, 10);
+  fenceRun(COVE.halfWidth, COVE.waterline + 5, COVE.halfWidth, COVE.inland - 1, 10);
+  fenceRun(-COVE.halfWidth, COVE.inland + 0.5, COVE.halfWidth, COVE.inland + 0.5, 12);   // the back fence (rev 1)
+
+  // --- THE SHORE OF SIXTEEN (rev 1): the other fifteen squares, fenced and
+  // flying seat pennants, waiting for their castaways. Vacant today; P1 seats
+  // real rivals in them. Sixteen is the hard cap (RULES.maxPlayers).
+  const SEAT_COLORS = [
+    0xF5C542, 0x2FA9E8, 0xF0455C, 0x9CFF7A, 0xC77BE8, 0xFF8C5A, 0x7FE7D8, 0xF7FBFF,
+    0x59DCD2, 0xFFB347, 0x4FA8E8, 0xFF6B6B, 0x6FC24A, 0xE7C25C, 0x9A6B3F, 0xDFF6FF,
+  ];
+  function pennant(x, z, color) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 5.2, 5), lam(PAL.post));
+    pole.position.set(x, 2.6, z);
+    dressing.add(pole);
+    const flag = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.6, 4), lam(color));
+    flag.rotation.z = -Math.PI / 2;
+    flag.position.set(x + 0.85, 4.7, z);
+    dressing.add(flag);
+  }
+  function vacantSquare(cx, color) {
+    const L = cx - COVE.halfWidth, R = cx + COVE.halfWidth;
+    fenceRun(L, COVE.waterline + 4, L, COVE.inland - 1, 7, 1);
+    fenceRun(R, COVE.waterline + 4, R, COVE.inland - 1, 7, 1);
+    fenceRun(L, COVE.inland + 0.5, R, COVE.inland + 0.5, 8, 1);
+    pennant(cx, COVE.inland - 1.5, color);
+    // a leaning driftwood claim-plank at the waterline says VACANT without words
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.7, 0.14), lam(PAL.trunk));
+    plank.position.set(cx, 1.05, COVE.waterline + 6);
+    plank.rotation.set(0, 0.18, 0.1);
+    dressing.add(plank);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 1.1, 5), lam(PAL.post));
+    leg.position.set(cx, 0.5, COVE.waterline + 6.1);
+    dressing.add(leg);
+  }
+  pennant(2.5, COVE.inland + 2, SEAT_COLORS[0]);   // your colours fly at home
+  for (let k = 1; k < 16; k++) {
+    const cx = (k % 2 ? 1 : -1) * SEAT_PITCH * Math.ceil(k / 2);
+    vacantSquare(cx, SEAT_COLORS[k]);
+  }
 
   // jungle wall inland + palms along the flanks
   for (let i = 0; i < 26; i++) {
@@ -393,35 +501,43 @@ export function createScene(canvas, COVE) {
     const s = 1.4 + ((i * 17) % 6) * 0.42;
     bush(-44 + i * 4.2, COVE.inland + 7 + ((i * 23) % 5) * 1.6, s, i % 3 ? PAL.jungle : PAL.jungleDeep);
   }
-  for (let i = 0; i < 5; i++) {
-    palm(-COVE.halfWidth - 3.5 - i * 1.1, COVE.waterline + 9 + i * 6.5, 0.95, 0.5);
-    palm(COVE.halfWidth + 3.5 + i * 1.1, COVE.waterline + 11 + i * 6.5, 0.9, -0.5);
+  // property lines, not jungle: one palm and one rock at each square boundary
+  // down the shore (the 4m gaps between fences are the only green on the sand)
+  for (let b = 0; b < 8; b++) {
+    for (const s of [-1, 1]) {
+      const bx = s * (COVE.halfWidth + 2 + SEAT_PITCH * b);
+      palm(bx, 12 + (b % 3) * 3, 0.9 + (b % 2) * 0.12, s * 0.35);
+      rock(bx, -6 - (b % 4) * 2, 0.7 + (b % 3) * 0.3);
+    }
   }
-  for (let i = 0; i < 12; i++) {
-    rock(-COVE.halfWidth - 6 - ((i * 7) % 5) * 2, COVE.waterline - 2 + i * 3.4, 0.8 + ((i * 3) % 4) * 0.35);
-    rock(COVE.halfWidth + 6 + ((i * 11) % 5) * 2, COVE.waterline + i * 3.6, 0.9 + ((i * 5) % 4) * 0.3);
+  // the jungle wall keeps going behind the neighbours
+  for (let i = 0; i < 14; i++) {
+    const jx = 52 + i * 13;
+    palm(jx, COVE.inland + 4 + (i % 3) * 2, 0.9, 0.2);
+    palm(-jx, COVE.inland + 5 + (i % 4) * 2, 0.95, -0.25);
   }
 
-  // headlands: the cove has to be a COVE, so close the arms around it. Two
-  // stacked masses with a jungle crown — a single grey slab reads as a wall.
+  // offshore islets: the old headland masses wade out into the surf (rev 1 —
+  // the shore belongs to the squares now), still framing the postcard from
+  // your square without standing on a neighbour's beach.
   for (const side of [-1, 1]) {
     const base = new THREE.Mesh(new THREE.DodecahedronGeometry(15, 0), lam(PAL.rockDark));
-    base.position.set(side * (COVE.halfWidth + 19), 1.0, COVE.waterline - 4);
+    base.position.set(side * (COVE.halfWidth + 21), 1.0, COVE.waterline - 27);
     base.scale.set(1.55, 0.55, 1.3);
     base.rotation.y = side * 0.6;
     dressing.add(base);
     const shelf = new THREE.Mesh(new THREE.DodecahedronGeometry(12, 0), lam(PAL.rock));
-    shelf.position.set(side * (COVE.halfWidth + 22), 6.4, COVE.waterline - 8);
+    shelf.position.set(side * (COVE.halfWidth + 24), 6.4, COVE.waterline - 31);
     shelf.scale.set(1.5, 0.5, 1.25);
     shelf.rotation.y = side * -0.4;
     dressing.add(shelf);
     const cap = new THREE.Mesh(new THREE.IcosahedronGeometry(11, 0), lam(PAL.jungle));
-    cap.position.set(side * (COVE.halfWidth + 23), 11.2, COVE.waterline - 9);
+    cap.position.set(side * (COVE.halfWidth + 25), 11.2, COVE.waterline - 32);
     cap.scale.set(1.25, 0.42, 1.05);
     dressing.add(cap);
     for (let i = 0; i < 5; i++) {
-      palm(side * (COVE.halfWidth + 15 + i * 3.2), COVE.waterline - 11 - i * 2.4, 1.1, side * 0.4);
-      bush(side * (COVE.halfWidth + 18 + i * 2.6), COVE.waterline - 14 - i * 1.7, 2.2, i % 2 ? PAL.jungle : PAL.jungleDeep);
+      palm(side * (COVE.halfWidth + 17 + i * 3.2), COVE.waterline - 34 - i * 2.4, 1.1, side * 0.4);
+      bush(side * (COVE.halfWidth + 20 + i * 2.6), COVE.waterline - 37 - i * 1.7, 2.2, i % 2 ? PAL.jungle : PAL.jungleDeep);
     }
   }
 
@@ -474,16 +590,15 @@ export function createScene(canvas, COVE) {
     const oar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.2, 4), lam(PAL.trunk));
     oar.rotation.set(0.2, 0.4, 1.15); oar.position.set(1.2, 0.5, 0.9);
     boat.add(oar);
-    boat.position.set(-COVE.halfWidth - 5.5, 0.1, COVE.waterline + 9);
+    boat.position.set(-COVE.halfWidth - 2, 0.1, COVE.waterline + 8);   // beached in the boundary gap
     boat.rotation.set(0, 0.85, 0.06);
     dressing.add(boat);
   }
 
-  // THE BOARDWALK (link 2): six tiki-torch stalls from data.js — four spell
-  // racks along the jungle line, the fruit stand and the surf shack out on the
-  // flanks. All of them stand BEHIND the fence/jungle line: the boardwalk
-  // frames the cove, it does not stand in the fight. Anything inside the play
-  // area sits between the camera and the hero and eats the screen.
+  // THE MARKET STALLS (rev 1): all six shops stand together in the central
+  // plaza now — the island ports every castaway here between tides. Stall
+  // coords in data.js are MARKET-local; this is where the market frame lands
+  // in the world. Nothing commercial stands in a fighting square anymore.
   //
   // Stalls live OUTSIDE the baked dressing (below): their gems bob and their
   // torch flames flicker every frame, and baking animated meshes freezes them.
@@ -514,6 +629,7 @@ export function createScene(canvas, COVE) {
     const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.5, 0),
       new THREE.MeshBasicMaterial({ color: def.color, fog: false }));
     gem.position.set(0, 4.4, 0);
+    gem.userData.baseY = 4.4;
     g.add(gem);
     stallGems.push(gem);
     for (const sx of [-2.4, 2.4]) {
@@ -524,14 +640,55 @@ export function createScene(canvas, COVE) {
       flame.position.set(sx, 3.2, 0.6); g.add(flame);
       torchFlames.push(flame);
     }
-    g.position.set(def.x, 0, def.z);
-    // face the counter at the sand: flank stalls turn toward the middle
-    if (def.x < -COVE.halfWidth) g.rotation.y = Math.PI / 2;
-    else if (def.x > COVE.halfWidth) g.rotation.y = -Math.PI / 2;
-    else g.rotation.y = Math.PI;
+    g.position.set(MK.x + def.x, 0, MK.z + def.z);
+    // every counter faces the plaza floor where the castaway ports in
+    g.rotation.y = Math.atan2(0 - def.x, -6 - def.z);
     stallGroup.add(g);
   }
   for (const def of STALLS) stall(def);
+
+  // THE BEACON — a striped lighthouse on the market's back edge, tall enough
+  // to clear the jungle: from any square, that glow is "the shops are there".
+  // The tower is static (baked); the gem rides the stall-gem bob for the pulse.
+  {
+    const bx = MK.x, bz = MK.z + 23;
+    const t1 = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 2.3, 7, 8), lam(0xF7FBFF));
+    t1.position.set(bx, 3.5, bz); dressing.add(t1);
+    const t2 = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.7, 6, 8), lam(PAL.hibiscus));
+    t2.position.set(bx, 10, bz); dressing.add(t2);
+    const t3 = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.35, 5, 8), lam(0xF7FBFF));
+    t3.position.set(bx, 15.5, bz); dressing.add(t3);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(1.7, 2.4, 8), lam(PAL.gold));
+    cap.position.set(bx, 19.4, bz); dressing.add(cap);
+    const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.9, 0),
+      new THREE.MeshBasicMaterial({ color: 0xFFD24A, fog: false }));
+    beacon.position.set(bx, 17.8, bz);
+    beacon.userData.baseY = 17.8;
+    stallGroup.add(beacon);
+    stallGems.push(beacon);
+  }
+
+  // market clearing dressing: a jungle ring with a south gap (the beach shows
+  // through where you port in) and traded-goods clutter between the stalls
+  {
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
+      if (Math.sin(a) < -0.55) continue;
+      const r = 30 + ((i * 7) % 4) * 1.6;
+      const px = MK.x + Math.cos(a) * r, pz = MK.z + Math.sin(a) * r * 0.82;
+      if (i % 3) palm(px, pz, 0.9 + ((i * 5) % 4) * 0.1, ((i % 2) ? 1 : -1) * 0.3);
+      else bush(px, pz, 1.8 + ((i * 11) % 4) * 0.5, i % 2 ? PAL.jungle : PAL.jungleDeep);
+    }
+    for (let i = 0; i < 7; i++) {
+      const a = -0.6 + i * 0.9;
+      const cx = MK.x + Math.cos(a) * 12.5, cz = MK.z + Math.sin(a) * 10.5;
+      if (nearStall(cx, cz)) continue;
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.0), lam(i % 2 ? PAL.rope : PAL.post));
+      crate.position.set(cx, 0.45, cz);
+      crate.rotation.y = i * 1.3;
+      dressing.add(crate);
+    }
+  }
 
   // the volcano, watching (§5)
   {
@@ -616,7 +773,10 @@ export function createScene(canvas, COVE) {
     let vcount = 0, icount = 0;
     for (const g of list) { vcount += g.attributes.position.count; icount += g.index.count; }
     const pos = new Float32Array(vcount * 3), nor = new Float32Array(vcount * 3);
-    const idx = new Uint16Array(icount);
+    // rev 1's shore of sixteen pushes the big bake buckets past 65,535 verts —
+    // a Uint16 index there wraps silently and shreds the mesh. WebGL2 is a
+    // boot requirement already, so u32 indices are free.
+    const idx = vcount > 65535 ? new Uint32Array(icount) : new Uint16Array(icount);
     let vo = 0, io = 0;
     for (const g of list) {
       const gp = g.attributes.position.array, gn = g.attributes.normal.array;
@@ -885,6 +1045,20 @@ export function createScene(canvas, COVE) {
   const BLOB_CAP = CREEP_CAP + 8;
   let camShake = 0;
 
+  // --- zones (rev 1): the camera and every sim-frame entity ride an offset.
+  // SQUARE is the identity frame; MARKET translates to the plaza at MK. The
+  // port itself is a teleport in the sim — the camera glides the 64m on its
+  // usual easing, which reads as the island carrying you to the shops.
+  const zoneOff = { x: 0, z: 0 };
+  let zoneName = 'SQUARE';
+  let flipT = 1;                 // eased camera side: +1 square, -1 market
+  function setZone(z) {
+    if (z === zoneName) return;
+    zoneName = z;
+    zoneOff.x = z === 'MARKET' ? MK.x : 0;
+    zoneOff.z = z === 'MARKET' ? MK.z : 0;
+  }
+
   // --- moods: the vista pull (death spectacle) and gold hour (milestones).
   // Both are one scalar eased toward a target; every lit thing lerps off it.
   const BASE_CAM = { pitch: CAM.pitch, dist: CAM.dist };
@@ -939,7 +1113,7 @@ export function createScene(canvas, COVE) {
     }
     for (let i = 0; i < stallGems.length; i++) {
       const g = stallGems[i];
-      g.position.y = 4.4 + Math.sin(tSec * 2 + i * 1.3) * 0.25;
+      g.position.y = (g.userData.baseY || 4.4) + Math.sin(tSec * 2 + i * 1.3) * 0.25;
       g.rotation.y = tSec * 1.2 + i;
     }
 
@@ -953,9 +1127,10 @@ export function createScene(canvas, COVE) {
       mm.m.rotation.x = k * 9; mm.m.rotation.z = k * 7;
     }
 
-    // --- hero ---
+    // --- hero (sim-local + zone offset) ---
     const h = S.hero;
-    const hx = lerp(h.px, h.x), hz = lerp(h.pz, h.z);
+    const lx = lerp(h.px, h.x), lz = lerp(h.pz, h.z);
+    const hx = lx + zoneOff.x, hz = lz + zoneOff.z;
     hero.visible = !h.dead;
     heroRing.visible = !h.dead;
     if (!h.dead) {
@@ -1062,7 +1237,7 @@ export function createScene(canvas, COVE) {
       const a = S.allies[i];
       const g = golems[i];
       g.visible = true;
-      const ax = lerp(a.px, a.x), az = lerp(a.pz, a.z);
+      const ax = lerp(a.px, a.x) + zoneOff.x, az = lerp(a.pz, a.z) + zoneOff.z;
       const stomp = Math.abs(Math.sin(tSec * 4 + i)) * 0.08;
       g.position.set(ax, stomp, az);
       g.rotation.y = a.facing;
@@ -1083,7 +1258,7 @@ export function createScene(canvas, COVE) {
     let pn = 0;
     for (const p of S.projs) {
       if (p.dead || pn >= PROJ_CAP) continue;
-      const px = lerp(p.px, p.x), pz2 = lerp(p.pz, p.z);
+      const px = lerp(p.px, p.x) + zoneOff.x, pz2 = lerp(p.pz, p.z) + zoneOff.z;
       const wob = 1 + Math.sin(tSec * 22 + p.id) * 0.18;
       m4.compose(vPos.set(px, 1.15, pz2), IDENT_Q, vScl.set(wob, wob, wob));
       projMesh.setMatrixAt(pn, m4);
@@ -1110,13 +1285,18 @@ export function createScene(canvas, COVE) {
 
     // --- camera: follow the hero loosely, RTS style; kick on a hero hit.
     // On a washout the whole rig eases out to the postcard instead — death is
-    // a beauty shot with a countdown on it, never a logout (§3).
-    const wantX = THREE.MathUtils.clamp(hx * 0.42, -9, 9);
-    const wantZ = THREE.MathUtils.clamp(-3 + hz * 0.32, -7, 6);
+    // a beauty shot with a countdown on it, never a logout (§3). The follow
+    // clamps run in the LOCAL frame, then ride the zone offset — same feel in
+    // the square and the market, and the port becomes a 64m glide.
+    const wantX = zoneOff.x + THREE.MathUtils.clamp(lx * 0.42, -9, 9);
+    const wantZ = zoneOff.z + THREE.MathUtils.clamp(-3 + lz * 0.32, -7, 6);
     CAM.look.x += (wantX + (VISTA_CAM.x - wantX) * vistaK - CAM.look.x) * 0.055;
     CAM.look.z += (wantZ + (VISTA_CAM.z - wantZ) * vistaK - CAM.look.z) * 0.055;
     CAM.pitch = BASE_CAM.pitch + (VISTA_CAM.pitch - BASE_CAM.pitch) * vistaK;
     CAM.dist = BASE_CAM.dist + (VISTA_CAM.dist - BASE_CAM.dist) * vistaK;
+    // the market faces the island; the vista always faces the sea, and it wins
+    flipT += ((zoneName === 'MARKET' ? -1 : 1) - flipT) * Math.min(1, dt * 2.2);
+    CAM.flip = flipT * (1 - vistaK) + vistaK;
     if (camShake > 0) camShake *= 0.86;
     placeCamera();
     if (camShake > 0.01) {
@@ -1132,7 +1312,8 @@ export function createScene(canvas, COVE) {
   return {
     renderer, scene, camera, CAM,
     resize, draw, pickGround, worldToScreen, popFoamRing, popRing, markClick, kick,
-    setHeroBody, meteorWarn, setVista, setGoldHour,
+    setHeroBody, meteorWarn, setVista, setGoldHour, setZone,
+    marketAnchor: MK,
     get vistaK() { return vistaK; },
     get goldK() { return goldK; },
     paletteTex,

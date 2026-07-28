@@ -28,14 +28,52 @@ export const TICK_S = 1 / SIM_HZ;
 export const secs = s => Math.round(s * SIM_HZ);   // seconds -> ticks, the only conversion allowed
 
 // ---------------------------------------------------------------------------
-// THE COVE — one walled beach. World units are metres. -Z is out to sea.
+// THE MAP (rev 1) — the TFT structure: up to 16 PRIVATE SQUARES around one
+// central MARKET. You fight tides alone in your square; between tides the
+// island PORTS you to the market in the middle, where every shop stands.
+// Both frames are LOCAL metre spaces (seat-independent, so the same seed
+// replays identically from any square — the ghost race stays honest). The
+// renderer decides where each frame sits in the world; the sim only knows
+// which zone the hero is standing in. -Z is out to sea in the square frame.
 // ---------------------------------------------------------------------------
-export const COVE = {
+export const SQUARE = {
   halfWidth: 26,      // rope-post fences stand at +/- this
-  waterline: -20,     // creeps wash ashore here
-  inland: 22,         // jungle wall
-  heroStart: { x: 0, z: 6 },
+  waterline: -20,     // the open sea edge (the classic door)
+  inland: 22,         // the back fence / jungle wall
+  heroStart: { x: 0, z: 1 },   // you hold the middle of your square
 };
+export const COVE = SQUARE;    // legacy alias — the node tools import COVE
+
+export const MARKET = {
+  halfWidth: 23,      // plaza walk bounds
+  zMin: -20,          // the beach side (the port-in end)
+  zMax: 14,           // the back arc where the racks stand
+  heroStart: { x: 0, z: -14 },
+};
+
+export const ZONE = { SQUARE: 'SQUARE', MARKET: 'MARKET' };
+
+// hero-legal walk bounds for the zone the hero is standing in
+function heroBounds(S) {
+  return S.zone === ZONE.MARKET
+    ? { x0: -MARKET.halfWidth + 1, x1: MARKET.halfWidth - 1, z0: MARKET.zMin + 1, z1: MARKET.zMax - 1 }
+    : { x0: -SQUARE.halfWidth + 1, x1: SQUARE.halfWidth - 1, z0: SQUARE.waterline + 1.5, z1: SQUARE.inland - 1 };
+}
+
+// aim clamps run a touch wider than feet — smart-cast never refuses (D3)
+function aimBounds(S) {
+  return S.zone === ZONE.MARKET
+    ? { x0: -MARKET.halfWidth - 2, x1: MARKET.halfWidth + 2, z0: MARKET.zMin - 2, z1: MARKET.zMax + 2 }
+    : { x0: -SQUARE.halfWidth - 2, x1: SQUARE.halfWidth + 2, z0: SQUARE.waterline - 6, z1: SQUARE.inland };
+}
+
+// summons walk beside you in either zone; in the square they may chase into
+// the surf a little, exactly as before
+function allyBounds(S) {
+  return S.zone === ZONE.MARKET
+    ? { x0: -MARKET.halfWidth + 0.6, x1: MARKET.halfWidth - 0.6, z0: MARKET.zMin + 0.6, z1: MARKET.zMax - 0.6 }
+    : { x0: -SQUARE.halfWidth + 0.6, x1: SQUARE.halfWidth - 0.6, z0: SQUARE.waterline - 4, z1: SQUARE.inland - 0.6 };
+}
 
 // ---------------------------------------------------------------------------
 // TUNING — every number in the game lives in one object so a balance pass is
@@ -160,6 +198,14 @@ export function createSim(seedInput) {
     phase: PHASE.FORGE,
     phaseTicks: 0,               // ticks remaining in the current phase
     hold: false,                 // shopping at a stall holds the BREAK countdown
+    zone: ZONE.MARKET,           // the run OPENS at the market: pick a body among
+                                 // the stalls, spend, then the first tide ports
+                                 // you home. Dead breaks stay in your square.
+    setEdge: 0,                  // which fence the current surf-set breaks over
+                                 // (0 sea · 1 east · 2 back · 3 west)
+    edgeLog: [],                 // per-set edge telemetry (battery probe; not in
+                                 // the snapshot, so it can never skew determinism
+                                 // comparisons — it IS deterministic regardless)
 
     tide: 0,                     // the tide now running (or just survived)
     cleared: 0,                  // tides actually CLEARED. Monotonic — a washout
@@ -216,8 +262,8 @@ export function createSim(seedInput) {
 
   S.hero = {
     id: 0,
-    x: COVE.heroStart.x, z: COVE.heroStart.z,
-    px: COVE.heroStart.x, pz: COVE.heroStart.z,
+    x: MARKET.heroStart.x, z: MARKET.heroStart.z,   // born at the market (FORGE)
+    px: MARKET.heroStart.x, pz: MARKET.heroStart.z,
     hp: TUNE.hero.maxHp, maxHp: TUNE.hero.maxHp,
     dmg: TUNE.hero.dmg,
     regen: TUNE.hero.regen,
@@ -228,7 +274,7 @@ export function createSim(seedInput) {
     radius: TUNE.hero.radius,
     atkCd: 0, atkAnim: 0,
     facing: 0,
-    tx: COVE.heroStart.x, tz: COVE.heroStart.z,
+    tx: MARKET.heroStart.x, tz: MARKET.heroStart.z,
     hasOrder: false,
     dead: false,
     hitFlash: 0,
@@ -283,7 +329,7 @@ function snapshot(S) {
   const spellsKey = Object.keys(S.spells).sort().map(id => id + ':' + S.spells[id].rank).join(',');
   return {
     v: S.seed.v, seed: S.seed.seed,
-    tick: S.tick, phase: S.phase, tide: S.tide, cleared: S.cleared,
+    tick: S.tick, phase: S.phase, zone: S.zone, tide: S.tide, cleared: S.cleared,
     quota: S.quota, spawned: S.spawned, killed: S.killed,
     alive: S.creeps.length, queue: S.queue,
     gold: S.gold, pearls: S.pearls, kills: S.kills, deaths: S.deaths,
@@ -403,6 +449,33 @@ function tickOnce(S) {
 }
 
 // ---------------------------------------------------------------------------
+// THE PORT (rev 1) — the between-rounds teleport. Tide clears: boom, you stand
+// in the market. Tide starts: boom, you stand in your square. Summons ride
+// along; projectiles and scheduled impacts are zone-local debris and drop
+// (nothing they could hit exists across the port). A dead castaway is never
+// ported — the washout vista and the dead break play out in the square.
+// ---------------------------------------------------------------------------
+function portTo(S, zone) {
+  if (S.zone === zone) return;
+  S.zone = zone;
+  const at = zone === ZONE.MARKET ? MARKET.heroStart : SQUARE.heroStart;
+  const h = S.hero;
+  h.x = h.px = h.tx = at.x;
+  h.z = h.pz = h.tz = at.z;
+  h.hasOrder = false;
+  let k = 0;
+  for (const a of S.allies) {
+    if (a.dead) continue;
+    a.x = a.px = at.x + (k % 2 ? 2.2 : -2.2);
+    a.z = a.pz = at.z + 1.6 + Math.floor(k / 2) * 1.4;
+    k++;
+  }
+  S.projs = [];
+  S.pendings = [];
+  ev(S, 'port', { to: zone, x: at.x, z: at.z });
+}
+
+// ---------------------------------------------------------------------------
 // TIDE FLOW
 // ---------------------------------------------------------------------------
 function startTide(S) {
@@ -415,6 +488,7 @@ function startTide(S) {
   S.phase = PHASE.TIDE;
   S.phaseTicks = 0;
   S.hold = false;
+  portTo(S, ZONE.SQUARE);        // the market empties the moment a tide rolls
 
   // Modifier tides (§6): ONE bolted ability, rolled once per tide NUMBER so a
   // washout retry faces the same tide it lost to.
@@ -434,9 +508,9 @@ function startTide(S) {
   if (S.hero.dead) {
     S.hero.dead = false;
     S.hero.hp = S.hero.maxHp;
-    S.hero.x = S.hero.px = COVE.heroStart.x;
-    S.hero.z = S.hero.pz = COVE.heroStart.z;
-    S.hero.tx = COVE.heroStart.x; S.hero.tz = COVE.heroStart.z;
+    S.hero.x = S.hero.px = SQUARE.heroStart.x;
+    S.hero.z = S.hero.pz = SQUARE.heroStart.z;
+    S.hero.tx = SQUARE.heroStart.x; S.hero.tz = SQUARE.heroStart.z;
     S.hero.hasOrder = false;
     ev(S, 'wash_up');
   }
@@ -478,6 +552,7 @@ function clearTide(S) {
   }
   S.phase = PHASE.BREAK;
   S.phaseTicks = TUNE.breakTicks;
+  portTo(S, ZONE.MARKET);        // boom — spend it before the next tide
 }
 
 function skipBreak(S) {
@@ -518,11 +593,20 @@ function endWashout(S) {
 }
 
 // ---------------------------------------------------------------------------
-// SPAWNING — surf-sets of 6-8 every ~4s until the quota is out of the sea.
-// Concurrent cap 40 per cove; the remainder waits in the overflow queue.
+// SPAWNING (rev 1) — surf-sets of 6-8 every ~4s until the quota is in. The sea
+// is no longer the only door: each SET rolls which fence it breaks over (sea /
+// east / back / west), so pressure rotates around your square instead of
+// forming one polite front. Tides 1-2 stay sea-only — the taught front — then
+// RULES.multiEdgeFromTide opens the other three. One edge per set (not per
+// creep) keeps every arrival readable and keeps kiting a real answer.
+// Concurrent cap 40 per square; the remainder waits in the overflow queue.
 // ---------------------------------------------------------------------------
+function rollEdge(S) {
+  return S.tide >= RULES.multiEdgeFromTide ? randInt(S.rng, 0, 3) : 0;
+}
+
 function spawnPhase(S) {
-  // drain the overflow queue first, as soon as the cove has room
+  // drain the overflow queue first, as soon as the square has room
   while (S.queue > 0 && S.creeps.length < TUNE.coveCap) {
     S.queue--;
     spawnOne(S);
@@ -534,8 +618,10 @@ function spawnPhase(S) {
   if (S.setTimer > 0) return;
   S.setTimer = TUNE.surfSetTicks;
 
+  S.setEdge = rollEdge(S);
+  if (S.edgeLog.length < 400) S.edgeLog.push(S.setEdge);
   const want = Math.min(randInt(S.rng, TUNE.surfSetMin, TUNE.surfSetMax), S.quota - S.spawned);
-  ev(S, 'surf_set', { count: want });
+  ev(S, 'surf_set', { count: want, edge: S.setEdge });
   for (let i = 0; i < want; i++) {
     S.spawned++;
     if (S.creeps.length < TUNE.coveCap) spawnOne(S);
@@ -574,8 +660,23 @@ function makeCreep(S, o) {
 function spawnOne(S) {
   const skin = SKINS[randInt(S.rng, 0, SKINS.length - 1)];
   const hp = Math.max(1, Math.round(creepHp(S.tide) * skin.hp));
-  const x = randRange(S.rng, -COVE.halfWidth + 3, COVE.halfWidth - 3);
-  const z = COVE.waterline - randRange(S.rng, 0, 2.2);
+  // spread along the set's fence; always exactly TWO draws so the stream shape
+  // is identical whichever edge rolled
+  const half = SQUARE.halfWidth;
+  let x, z;
+  if (S.setEdge === 1) {          // over the east fence
+    z = randRange(S.rng, SQUARE.waterline + 3, SQUARE.inland - 3);
+    x = half - 0.8 - randRange(S.rng, 0, 2.0);
+  } else if (S.setEdge === 2) {   // over the back fence
+    x = randRange(S.rng, -half + 3, half - 3);
+    z = SQUARE.inland - 0.8 - randRange(S.rng, 0, 2.0);
+  } else if (S.setEdge === 3) {   // over the west fence
+    z = randRange(S.rng, SQUARE.waterline + 3, SQUARE.inland - 3);
+    x = -half + 0.8 + randRange(S.rng, 0, 2.0);
+  } else {                        // out of the sea — the classic door
+    x = randRange(S.rng, -half + 3, half - 3);
+    z = SQUARE.waterline - randRange(S.rng, 0, 2.2);
+  }
   return makeCreep(S, {
     skin: skin.id, x, z, hp,
     dmg: Math.max(1, Math.round(creepDmg(S.tide) * skin.dmg)),
@@ -586,10 +687,20 @@ function spawnOne(S) {
 }
 
 // A hero-unit boss (§6): the creep template, scaled up and given ONE trick.
+// It surfaces at the midpoint of a rolled fence — tide 5+ is past the taught
+// front, so the king comes in from wherever it pleases.
 function spawnBoss(S, spec) {
+  const bossEdge = rollEdge(S);
+  const BOSS_SPOTS = [
+    { x: 0, z: SQUARE.waterline - 1 },
+    { x: SQUARE.halfWidth - 1.2, z: 1 },
+    { x: 0, z: SQUARE.inland - 1.2 },
+    { x: -SQUARE.halfWidth + 1.2, z: 1 },
+  ];
+  const at = BOSS_SPOTS[bossEdge];
   const c = makeCreep(S, {
     skin: spec.skin,
-    x: 0, z: COVE.waterline - 1,
+    x: at.x, z: at.z,
     hp: Math.round(creepHp(S.tide) * spec.hpMult),
     dmg: Math.round(creepDmg(S.tide) * spec.dmgMult),
     ms: spec.ms,
@@ -888,9 +999,10 @@ function castSpell(S, slotKey, ax, az) {
   const rank = S.spells[id].rank;
   const fx = sp.fx;
 
-  // aim lands inside the world, always — smart-cast never refuses (D3)
-  ax = clamp(ax === undefined ? h.x : ax, -COVE.halfWidth - 2, COVE.halfWidth + 2);
-  az = clamp(az === undefined ? h.z : az, COVE.waterline - 6, COVE.inland);
+  // aim lands inside the zone you stand in, always — smart-cast never refuses (D3)
+  const ab = aimBounds(S);
+  ax = clamp(ax === undefined ? h.x : ax, ab.x0, ab.x1);
+  az = clamp(az === undefined ? h.z : az, ab.z0, ab.z1);
 
   S.cds[id] = Math.round(secs(sp.cd) * h.cdMult);
   ev(S, 'cast', { id, cat: sp.cat, x: h.x, z: h.z, ax, az });
@@ -974,8 +1086,9 @@ function castSpell(S, slotKey, ax, az) {
       const d = Math.hypot(dx, dz) || 1;
       const step = Math.min(dist, d);
       const x0 = h.x, z0 = h.z;
-      h.x = clamp(h.x + (dx / d) * step, -COVE.halfWidth + 1, COVE.halfWidth - 1);
-      h.z = clamp(h.z + (dz / d) * step, COVE.waterline + 1.5, COVE.inland - 1);
+      const hb = heroBounds(S);
+      h.x = clamp(h.x + (dx / d) * step, hb.x0, hb.x1);
+      h.z = clamp(h.z + (dz / d) * step, hb.z0, hb.z1);
       h.px = h.x; h.pz = h.z;      // a blink does not interpolate
       h.stun = 0;                  // sheds stuns — the escape button works
       h.hasOrder = false;
@@ -988,8 +1101,8 @@ function castSpell(S, slotKey, ax, az) {
       const dmg = D(fx.dmg);
       const span = secs(fx.sec);
       for (let i = 0; i < count; i++) {
-        const rx = clamp(ax + randRange(S.rng, -fx.spreadR, fx.spreadR), -COVE.halfWidth, COVE.halfWidth);
-        const rz = clamp(az + randRange(S.rng, -fx.spreadR, fx.spreadR), COVE.waterline - 2, COVE.inland);
+        const rx = clamp(ax + randRange(S.rng, -fx.spreadR, fx.spreadR), ab.x0, ab.x1);
+        const rz = clamp(az + randRange(S.rng, -fx.spreadR, fx.spreadR), ab.z0, ab.z1);
         const due = S.tick + secs(0.8) + Math.round((i / count) * span);
         S.pendings.push({ due, x: rx, z: rz, r: fx.hitR, dmg, side: 'friendly', cat: sp.cat });
         ev(S, 'meteor_warn', { x: rx, z: rz, ticks: due - S.tick, r: fx.hitR });
@@ -1013,10 +1126,11 @@ function castSpell(S, slotKey, ax, az) {
       // one golem at a time: recasting replaces the standing one
       for (const a of S.allies) a.dead = true;
       const gx = clamp(ax, h.x - 4, h.x + 4), gz = clamp(az, h.z - 4, h.z + 4);
+      const gb = heroBounds(S);
       S.allies.push({
         id: S.nextId++,
-        x: clamp(gx, -COVE.halfWidth + 1, COVE.halfWidth - 1),
-        z: clamp(gz, COVE.waterline + 1, COVE.inland - 1),
+        x: clamp(gx, gb.x0, gb.x1),
+        z: clamp(gz, gb.z0, gb.z1),
         px: gx, pz: gz,
         hp: D(fx.hp), maxHp: D(fx.hp),
         dmg: Math.round(rv(fx.dmg, rank)),
@@ -1127,8 +1241,9 @@ function resolvePendings(S) {
 // ---------------------------------------------------------------------------
 function orderMove(S, x, z) {
   if (S.hero.dead || S.hero.stun > 0) return false;
-  S.hero.tx = clamp(x, -COVE.halfWidth + 1, COVE.halfWidth - 1);
-  S.hero.tz = clamp(z, COVE.waterline + 1.5, COVE.inland - 1);
+  const hb = heroBounds(S);
+  S.hero.tx = clamp(x, hb.x0, hb.x1);
+  S.hero.tz = clamp(z, hb.z0, hb.z1);
   S.hero.hasOrder = true;
   return true;
 }
@@ -1258,8 +1373,9 @@ function allyStep(S, a) {
       a.facing = Math.atan2(dx, dz);
     }
   }
-  a.x = clamp(a.x, -COVE.halfWidth + 0.6, COVE.halfWidth - 0.6);
-  a.z = clamp(a.z, COVE.waterline - 4, COVE.inland - 0.6);
+  const bb = allyBounds(S);
+  a.x = clamp(a.x, bb.x0, bb.x1);
+  a.z = clamp(a.z, bb.z0, bb.z1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1426,9 +1542,17 @@ function resolveBodies(S) {
     }
   }
 
-  for (const c of bodies) {
-    c.x = clamp(c.x, -COVE.halfWidth + 0.6, COVE.halfWidth - 0.6);
-    c.z = clamp(c.z, COVE.waterline - 4, COVE.inland - 0.6);
+  // creeps live in the square frame, always; allies stand wherever the hero is
+  for (const c of S.creeps) {
+    if (c.dead || c.receding) continue;
+    c.x = clamp(c.x, -SQUARE.halfWidth + 0.6, SQUARE.halfWidth - 0.6);
+    c.z = clamp(c.z, SQUARE.waterline - 4, SQUARE.inland - 0.6);
+  }
+  const bb = allyBounds(S);
+  for (const a of S.allies) {
+    if (a.dead) continue;
+    a.x = clamp(a.x, bb.x0, bb.x1);
+    a.z = clamp(a.z, bb.z0, bb.z1);
   }
 }
 

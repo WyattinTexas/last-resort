@@ -173,6 +173,37 @@ const main = async () => {
   ok(bstats.hp === 1050 && bstats.dmg === 60 && bstats.phase === 'BREAK',
     'the body statline applied and the first break began', JSON.stringify(bstats));
 
+  // --- 2.5 THE MAP (rev 1): sixteen squares, one market, the port -------
+  console.log('\nTHE MAP — sixteen squares, one market, the port');
+  ok(await evalJs('RESORT.rules.maxPlayers') === 16, 'sixteen squares is the cap (RULES.maxPlayers)');
+  await evalJs('RESORT.setSeed("map")');
+  ok(await evalJs('RESORT.state.zone') === 'MARKET', 'the run OPENS at the market (the Forge stands among the stalls)');
+  await evalJs('RESORT.pickBody("wrestler")');
+  const mpos = await evalJs('({z:RESORT.state.zone, x:RESORT.state.hero.x, hz:RESORT.state.hero.z})');
+  ok(mpos.z === 'MARKET' && Math.abs(mpos.x) <= 23 && mpos.hz >= -20 && mpos.hz <= 14,
+    'the first shop break stands you in the market plaza', JSON.stringify(mpos));
+  await evalJs('RESORT.skipTide()');
+  await evalJs('RESORT.runTicks(3)');
+  const sq = await evalJs('({z:RESORT.state.zone, x:RESORT.state.hero.x, hz:RESORT.state.hero.z, phase:RESORT.state.phase})');
+  ok(sq.z === 'SQUARE' && sq.phase === 'TIDE' && sq.x === 0 && sq.hz === 1,
+    'the tide PORTS you home to the middle of your own square', JSON.stringify(sq));
+  const backTrip = await evalJs('RESORT.runTides(1, 20*60*4)');
+  const backZone = await evalJs('({z:RESORT.state.zone, phase:RESORT.state.phase})');
+  ok(backTrip.ok && backZone.z === 'MARKET' && backZone.phase === 'BREAK',
+    'the clear PORTS you back to the market for the break', JSON.stringify(backZone));
+  // stall proximity drives the rack UI in the market (walk up -> sheet opens).
+  // Poll, don't sleep: SwiftShader frames can run ~10fps headless.
+  const sheetIs = want => evalJs(`(async()=>{
+    for (let i = 0; i < 40; i++) {
+      if (document.getElementById('sheet').classList.contains('show') === ${want}) return true;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return false; })()`);
+  await evalJs('RESORT.state.hero.x = -18; RESORT.state.hero.z = 3; 1');   // the STRIKE RACK counter
+  ok(await sheetIs(true), 'standing at a market stall opens its rack sheet');
+  await evalJs('RESORT.state.hero.x = 0; RESORT.state.hero.z = -14; 1');
+  ok(await sheetIs(false), 'walking away closes the counter');
+
   // --- 3. TWO TIDES, MEASURED IN TICKS ---------------------------------
   console.log('\nSIM — two tides on a paused wall clock');
   await evalJs('RESORT.setSeed("smoke")');
@@ -290,6 +321,7 @@ const main = async () => {
         lastCleared = S.cleared; lastPearls = S.pearls; lastSpent = S.ledger.pearlsSpent;
       }
     }
+    obs.edgeKinds = Array.from(new Set(S.edgeLog)).sort();
     return {phase:S.phase, cleared:S.cleared, deaths:S.deaths, level:S.level, ticks:t,
       victory:S.victory, obs, spells:Object.keys(S.spells).length,
       gold:S.gold, ledger:S.ledger};
@@ -304,6 +336,8 @@ const main = async () => {
     'modifier tides bolted ONE ability at tides 6 and 9', JSON.stringify(runAll.obs.modTides));
   ok(runAll.obs.pearlSchedule === true,
     'PEARL MATH: +1 per clear, +2 on milestones, every single tide');
+  ok(runAll.obs.edgeKinds && runAll.obs.edgeKinds.length >= 3,
+    'surf-sets broke over multiple fences across the run (rev 1 spawns)', JSON.stringify(runAll.obs.edgeKinds));
   ok(runAll.obs.ledgerEveryClear === true,
     'GOLD MATH: the ledger invariant held at every clear');
   ok(runAll.victory && runAll.victory.tide === 10 && runAll.victory.spells.length >= 4,
@@ -423,10 +457,12 @@ const main = async () => {
   const deadBreak = await evalJs(`(()=>{
     let t = 0;
     while (RESORT.state.phase === 'WASHOUT' && t < 200) { RESORT.runTicks(1); t++; }
-    return {phase: RESORT.state.phase, ticks: RESORT.state.phaseTicks, dead: RESORT.state.hero.dead};
+    return {phase: RESORT.state.phase, ticks: RESORT.state.phaseTicks, dead: RESORT.state.hero.dead, zone: RESORT.state.zone};
   })()`);
   ok(deadBreak.phase === 'BREAK' && deadBreak.ticks === 240 && deadBreak.dead,
     'the dead break runs 12s and the hero stays down through it', JSON.stringify(deadBreak));
+  ok(deadBreak.zone === 'SQUARE',
+    'a dead castaway is NEVER ported — the market is for the living', `zone=${deadBreak.zone}`);
   const back = await evalJs('(RESORT.runTicks(245), {phase:RESORT.state.phase, dead:RESORT.state.hero.dead, hp:RESORT.state.hero.hp})');
   ok(back.phase === 'TIDE' && !back.dead && back.hp > 0,
     'the next tide washes the hero back up — death is never a logout', JSON.stringify(back));

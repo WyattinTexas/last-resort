@@ -12,14 +12,14 @@
 import * as THREE from 'three';
 import { TXT, tf, localizeDom, i18nAudit } from './i18n.js';
 import { makeSeed } from './rng.js';
-import { createSim, COVE, TUNE, PHASE, SIM_HZ, TICK_S, creepHp, tideQuota, clearGold, tideNow, secs } from './sim.js';
+import { createSim, COVE, MARKET, ZONE, TUNE, PHASE, SIM_HZ, TICK_S, creepHp, tideQuota, clearGold, tideNow, secs } from './sim.js';
 import { createScene, PAL } from './scene.js';
 import { SPELL, SPELLS, BODIES, MOD, CAT_COLOR, RULES } from './data.js';
 import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSlot } from './shop.js';
 import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, mmss } from './ghost.js';
 import { AUDIO } from './audio.js';
 
-export const VERSION = '0.3.1';
+export const VERSION = '0.4.0';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;
@@ -62,6 +62,9 @@ const HINTS = [
   'BOSS SLAMS LAND INSIDE THE RING. BE SOMEWHERE ELSE.',
   'FEET ARE A STAT. THE DROWNED STOOD STILL.',
   'THE SHOPS HOLD THE TIDE OPEN WHILE YOU BROWSE. HAGGLE SLOWLY.',
+  'BETWEEN TIDES THE ISLAND PORTS YOU TO THE MARKET. SPEND.',
+  'FROM TIDE 3 SURF-SETS BREAK OVER ANY FENCE. WATCH THE FOAM.',
+  'SIXTEEN SQUARES ON THIS SHORE. ONLY ONE FLIES YOUR COLOURS.',
   'FRUIT IS FOREVER. JUICE IS FOR EMERGENCIES.',
   'THE GHOST REMEMBERS EVERY SPLIT TIME. MAKE IT REGRET THAT.',
   'SPLITTING JELLIES ARE TWO PROBLEMS IN A COAT. BRING A NOVA.',
@@ -81,9 +84,14 @@ let tSec = 0;
 let framesDrawn = 0;
 const floats = [];
 let annUntil = 0;
-const warns = [];     // telegraphed circles: {x,z,r,ttl,total,color}
-const beams = [];     // lightning / wand zaps: {pts,ttl,total,jag,color}
-const aim = { x: 0, z: 6 };   // the hover point QWER smart-casts at (D3)
+const warns = [];     // telegraphed circles: {x,z,r,ttl,total,color} (WORLD coords)
+const beams = [];     // lightning / wand zaps: {pts,ttl,total,jag,color} (WORLD coords)
+const aim = { x: 0, z: 6 };   // the hover point QWER smart-casts at (D3; SIM-LOCAL coords)
+
+// rev 1: the sim thinks in local frames (your square / the market); the
+// renderer and overlay think in world metres. ZOFF is the CURRENT zone's
+// offset — pointer input subtracts it, presentation adds it.
+const ZOFF = { x: 0, z: 0 };
 
 // ---------------------------------------------------------------------------
 // BOOT
@@ -95,7 +103,7 @@ function boot() {
 
   const qSeed = (location.search.match(/[?&]seed=([A-Za-z0-9_-]+)/) || [])[1];
   sim = createSim(makeSeed(qSeed || undefined));
-  scene = createScene(canvas, COVE);
+  scene = createScene(canvas, COVE, MARKET);
 
   HUD.build.textContent = 'v' + VERSION + ' · ' + BUILD;
   HUD.seedLabel.textContent = sim.S.seed.label;
@@ -188,6 +196,11 @@ function frame(nowMs) {
     if (acc > TICK_MS * MAX_CATCHUP) acc = 0;   // the tab was asleep; drop the debt, don't fast-forward
   }
 
+  const mka = scene.marketAnchor;
+  ZOFF.x = sim.S.zone === ZONE.MARKET ? mka.x : 0;
+  ZOFF.z = sim.S.zone === ZONE.MARKET ? mka.z : 0;
+  scene.setZone(sim.S.zone);
+
   consumeEvents();
   shopFrame();
   ghostFrame();
@@ -206,26 +219,47 @@ function frame(nowMs) {
 // ---------------------------------------------------------------------------
 function consumeEvents() {
   const S = sim.S;
-  for (const e of sim.drainEvents()) {
+  const evs = sim.drainEvents();
+  // A drained batch can straddle a port (kills -> clear -> port in one tick):
+  // walk a running zone so every event's fx lands in the frame it happened in.
+  let runZone = S.zone;
+  const firstPort = evs.find(e => e.type === 'port');
+  if (firstPort) runZone = firstPort.to === ZONE.MARKET ? ZONE.SQUARE : ZONE.MARKET;
+  const mka = scene.marketAnchor;
+  for (const e of evs) {
+    if (e.type === 'port') runZone = e.to;
+    const oX = runZone === ZONE.MARKET ? mka.x : 0;
+    const oZ = runZone === ZONE.MARKET ? mka.z : 0;
     ghostEvent(e);
     switch (e.type) {
-      case 'surf_set':
-        scene.popFoamRing(0, COVE.waterline + 1);
-        announce(tf(TXT('A SURF-SET IS BREAKING — %1 INCOMING'), e.count), '#8CF0E4', 2.2);
+      case 'port':
+        scene.popRing(e.x + oX, e.z + oZ, 0x7FE7D8, 1.5);
         break;
+      case 'surf_set': {
+        // foam bursts along the fence this set breaks over (rev 1)
+        const hw = COVE.halfWidth;
+        const pts = e.edge === 1 ? [[hw - 1, -10], [hw - 1, 1], [hw - 1, 12]]
+          : e.edge === 2 ? [[-12, COVE.inland - 1], [0, COVE.inland - 1], [12, COVE.inland - 1]]
+          : e.edge === 3 ? [[-hw + 1, -10], [-hw + 1, 1], [-hw + 1, 12]]
+          : [[-12, COVE.waterline + 1], [0, COVE.waterline + 1], [12, COVE.waterline + 1]];
+        for (const p of pts) scene.popFoamRing(p[0], p[1]);
+        const dir = [TXT('OUT OF THE SEA'), TXT('OVER THE EAST FENCE'), TXT('OVER THE BACK FENCE'), TXT('OVER THE WEST FENCE')][e.edge || 0];
+        announce(tf(TXT('A SURF-SET BREAKS %1 — %2 INCOMING'), dir, e.count), '#8CF0E4', 2.2);
+        break;
+      }
       case 'spawn':
-        scene.popFoamRing(e.x, e.z + 1.5);
+        scene.popFoamRing(e.x, e.z);
         break;
       case 'hit':
-        if (e.crit) pushFloat(e.x, e.z, '-' + e.amount + '!', '#FFB347', 23);
-        else pushFloat(e.x, e.z, '-' + e.amount, e.fatal ? '#FFF2C4' : '#FFFFFF', e.fatal ? 20 : 15);
+        if (e.crit) pushFloat(e.x + oX, e.z + oZ, '-' + e.amount + '!', '#FFB347', 23);
+        else pushFloat(e.x + oX, e.z + oZ, '-' + e.amount, e.fatal ? '#FFF2C4' : '#FFFFFF', e.fatal ? 20 : 15);
         break;
       case 'kill':
-        pushFloat(e.x, e.z, '+' + e.gold, '#F5C542', e.big ? 24 : 17);
+        pushFloat(e.x + oX, e.z + oZ, '+' + e.gold, '#F5C542', e.big ? 24 : 17);
         break;
       case 'hero_hit':
         scene.kick(0.06);
-        pushFloat(S.hero.x, S.hero.z, '-' + e.amount, '#FF6B6B', 17);
+        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, '-' + e.amount, '#FF6B6B', 17);
         break;
       case 'tide_start': {
         const milestone = e.tide % TUNE.milestoneEvery === 0;
@@ -273,52 +307,52 @@ function consumeEvents() {
       }
       case 'level_up':
         announce(tf(TXT('LEVEL %1 — SKILL POINT EARNED'), e.level), '#F5C542', 2.6);
-        scene.popRing(S.hero.x, S.hero.z, 0xF5C542, 1.1);
+        scene.popRing(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, 0xF5C542, 1.1);
         AUDIO.moment('level');
         break;
       case 'cast': {
-        scene.popRing(e.x, e.z, parseInt((CAT_COLOR[e.cat] || '#FFFFFF').slice(1), 16), 0.5);
+        scene.popRing(e.x + oX, e.z + oZ, parseInt((CAT_COLOR[e.cat] || '#FFFFFF').slice(1), 16), 0.5);
         break;
       }
       case 'proj_hit':
-        scene.popRing(e.x, e.z, catHex(e.cat), Math.max(0.4, (e.r || 0.6) / 2.4));
+        scene.popRing(e.x + oX, e.z + oZ, catHex(e.cat), Math.max(0.4, (e.r || 0.6) / 2.4));
         break;
       case 'aoe_hit':
-        if (e.hostile) { scene.popRing(e.x, e.z, 0xFF5B5B, e.r / 2.2); scene.kick(0.1); }
-        else scene.popRing(e.x, e.z, catHex(e.cat), e.r / 2.4);
+        if (e.hostile) { scene.popRing(e.x + oX, e.z + oZ, 0xFF5B5B, e.r / 2.2); scene.kick(0.1); }
+        else scene.popRing(e.x + oX, e.z + oZ, catHex(e.cat), e.r / 2.4);
         break;
       case 'aoe_warn':
-        warns.push({ x: e.x, z: e.z, r: e.r, ttl: e.ticks / SIM_HZ, total: e.ticks / SIM_HZ, color: e.hostile ? '#FF5B5B' : '#F5C542' });
+        warns.push({ x: e.x + oX, z: e.z + oZ, r: e.r, ttl: e.ticks / SIM_HZ, total: e.ticks / SIM_HZ, color: e.hostile ? '#FF5B5B' : '#F5C542' });
         break;
       case 'meteor_warn':
-        scene.meteorWarn(e.x, e.z, e.ticks / SIM_HZ);
-        warns.push({ x: e.x, z: e.z, r: e.r, ttl: e.ticks / SIM_HZ, total: e.ticks / SIM_HZ, color: '#F5C542' });
+        scene.meteorWarn(e.x + oX, e.z + oZ, e.ticks / SIM_HZ);
+        warns.push({ x: e.x + oX, z: e.z + oZ, r: e.r, ttl: e.ticks / SIM_HZ, total: e.ticks / SIM_HZ, color: '#F5C542' });
         break;
       case 'chain':
-        beams.push({ pts: e.pts, ttl: 0.28, total: 0.28, jag: true, color: '#9FE7FF' });
+        beams.push({ pts: e.pts.map(p => ({ x: p.x + oX, z: p.z + oZ })), ttl: 0.28, total: 0.28, jag: true, color: '#9FE7FF' });
         break;
       case 'zap':
-        beams.push({ pts: [{ x: e.x0, z: e.z0 }, { x: e.x1, z: e.z1 }], ttl: 0.13, total: 0.13, jag: false, color: '#FFF6D2' });
+        beams.push({ pts: [{ x: e.x0 + oX, z: e.z0 + oZ }, { x: e.x1 + oX, z: e.z1 + oZ }], ttl: 0.13, total: 0.13, jag: false, color: '#FFF6D2' });
         break;
       case 'dash':
-        scene.popRing(e.x0, e.z0, 0x7FE7D8, 0.6);
-        scene.popRing(e.x1, e.z1, 0x7FE7D8, 0.8);
+        scene.popRing(e.x0 + oX, e.z0 + oZ, 0x7FE7D8, 0.6);
+        scene.popRing(e.x1 + oX, e.z1 + oZ, 0x7FE7D8, 0.8);
         break;
       case 'heal':
-        pushFloat(e.x, e.z, '+' + e.amount, '#9CFF7A', 17);
+        pushFloat(e.x + oX, e.z + oZ, '+' + e.amount, '#9CFF7A', 17);
         break;
       case 'shield_up':
-        pushFloat(S.hero.x, S.hero.z, TXT('SHIELD'), '#7AC8FF', 15);
+        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, TXT('SHIELD'), '#7AC8FF', 15);
         break;
       case 'summon':
-        scene.popRing(e.x, e.z, 0xE7C25C, 1.2);
+        scene.popRing(e.x + oX, e.z + oZ, 0xE7C25C, 1.2);
         announce(TXT('THE REEF ANSWERS'), '#E7C25C', 2);
         break;
       case 'stun':
-        pushFloat(S.hero.x, S.hero.z, TXT('STUNNED!'), '#FF6B6B', 16);
+        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, TXT('STUNNED!'), '#FF6B6B', 16);
         break;
       case 'dodge':
-        pushFloat(e.x, e.z, TXT('MISS'), '#C8D8E0', 13);
+        pushFloat(e.x + oX, e.z + oZ, TXT('MISS'), '#C8D8E0', 13);
         break;
       case 'mod_tide': {
         const m = MOD[e.mod];
@@ -458,7 +492,7 @@ function drawOverlay(alpha, dt) {
     }
   }
   for (const a of S.allies) {
-    const ax = lerp(a.px, a.x), az = lerp(a.pz, a.z);
+    const ax = lerp(a.px, a.x) + ZOFF.x, az = lerp(a.pz, a.z) + ZOFF.z;
     const p = scene.worldToScreen(ax, 2.3, az, w, h);
     if (p.behind) continue;
     const bw = 25, bh = 4;
@@ -508,7 +542,8 @@ function drawHud() {
 
   const key = [S.phase, S.tide, S.killed, S.quota, S.gold, S.pearls, S.kills,
     Math.round(S.hero.hp), S.hero.maxHp, Math.ceil(S.phaseTicks / SIM_HZ), S.creeps.length, S.queue,
-    S.level, S.xp, S.skillPts, S.bodyId, Math.round(S.hero.shield), S.hero.dead].join('|');
+    S.level, S.xp, S.skillPts, S.bodyId, Math.round(S.hero.shield), S.hero.dead,
+    anyShopOpen()].join('|');    // a held countdown never re-keys — the sheet state must
 
   if (key !== lastHud) {
     lastHud = key;
@@ -625,7 +660,7 @@ function castSlot(K, auto) {
   if (slot) { slot.classList.add('poke'); setTimeout(() => slot.classList.remove('poke'), 180); }
   const at = auto ? autoAim(K) : aim;
   const r = sim.cast(K, at.x, at.z);
-  if (!r.ok && r.why === 'empty') announce(TXT('THAT SLOT IS EMPTY — THE RACKS ARE ON THE BOARDWALK'), '#8CF0E4', 1.6);
+  if (!r.ok && r.why === 'empty') announce(TXT('THAT SLOT IS EMPTY — THE RACKS ARE AT THE MARKET'), '#8CF0E4', 1.6);
   if (!r.ok && r.why === 'passive') announce(TXT('THAT ONE WORKS ON ITS OWN'), '#8CF0E4', 1.4);
   return r;
 }
@@ -642,8 +677,10 @@ function wireInput() {
   const orderAt = (clientX, clientY) => {
     const g = groundAt(clientX, clientY);
     if (!g) return;
-    aim.x = g.x; aim.z = g.z;    // a tap is also the aim (touch has no hover)
-    if (sim.order(g.x, g.z)) scene.markClick(sim.S.hero.tx, sim.S.hero.tz);
+    aim.x = g.x - ZOFF.x; aim.z = g.z - ZOFF.z;   // a tap is also the aim (sim-local)
+    if (sim.order(g.x - ZOFF.x, g.z - ZOFF.z)) {
+      scene.markClick(sim.S.hero.tx + ZOFF.x, sim.S.hero.tz + ZOFF.z);
+    }
   };
 
   // the first gesture of any kind opens the bar (autoplay law)
@@ -658,7 +695,7 @@ function wireInput() {
   });
   canvas.addEventListener('pointermove', e => {
     const g = groundAt(e.clientX, e.clientY);
-    if (g) { aim.x = g.x; aim.z = g.z; }     // the smart-cast reticle is the mouse
+    if (g) { aim.x = g.x - ZOFF.x; aim.z = g.z - ZOFF.z; }   // the smart-cast reticle is the mouse (sim-local)
     if (held) orderAt(e.clientX, e.clientY);
   });
   addEventListener('pointerup', () => { held = false; });

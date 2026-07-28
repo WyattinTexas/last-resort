@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="theme-color" content="#0A3B4C">
 <title>LAST RESORT</title>
-<meta name="description" content="Eight castaways, eight coves, and a sea that keeps sending worse things ashore. Build a hero, out-survive the tides.">
+<meta name="description" content="Sixteen castaways, sixteen squares, one market in the middle — and a sea that keeps sending worse things ashore. Build a hero, out-survive the tides.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🏝️</text></svg>">
 <style>
 /* ---------------------------------------------------------------------------
@@ -350,7 +350,7 @@ body.touch #tbtns{display:flex}
 
   <div id="items"></div>
 
-  <div id="barnote" data-txt="Q W E R  ·  SPELL SLOTS OPEN AT THE BOARDWALK">Q W E R · SPELL SLOTS OPEN AT THE BOARDWALK</div>
+  <div id="barnote" data-txt="Q W E R  ·  SPELL SLOTS OPEN AT THE MARKET">Q W E R · SPELL SLOTS OPEN AT THE MARKET</div>
   <div id="bar">
     <div class="slot" id="slot-q"><b data-notr>Q</b><span class="ico" data-notr>·</span><i class="cd"></i><em class="cdt" data-notr></em><div class="tag" data-notr></div></div>
     <div class="slot" id="slot-w"><b data-notr>W</b><span class="ico" data-notr>·</span><i class="cd"></i><em class="cdt" data-notr></em><div class="tag" data-notr></div></div>
@@ -384,7 +384,7 @@ body.touch #tbtns{display:flex}
     <div class="label" data-txt="SHOP BREAK">SHOP BREAK</div>
     <div id="break-timer" data-notr>25</div>
     <div id="break-next" data-notr></div>
-    <div id="shop-stub" data-txt="THE BOARDWALK IS OPEN — WALK TO A STALL. THE TIDE WAITS WHILE YOU HAGGLE.">THE BOARDWALK IS OPEN — WALK TO A STALL. THE TIDE WAITS WHILE YOU HAGGLE.</div>
+    <div id="shop-stub" data-txt="PORTED TO THE MARKET — WALK TO A STALL. THE TIDE WAITS WHILE YOU HAGGLE.">PORTED TO THE MARKET — WALK TO A STALL. THE TIDE WAITS WHILE YOU HAGGLE.</div>
     <div id="break-hint" data-notr></div>
     <button class="btn" id="break-skip" data-txt="CALL IT IN  ·  SPACE">CALL IT IN · SPACE</button>
   </div>
@@ -435,7 +435,7 @@ body.touch #tbtns{display:flex}
       <div id="wm-bot">RESORT</div>
     </div>
     <div id="wm-rule"></div>
-    <div id="wm-tag" data-txt="EIGHT CASTAWAYS. ONE ISLAND. THE SEA KEEPS SCORE.">EIGHT CASTAWAYS. ONE ISLAND. THE SEA KEEPS SCORE.</div>
+    <div id="wm-tag" data-txt="SIXTEEN SQUARES. ONE MARKET. THE SEA KEEPS SCORE.">SIXTEEN SQUARES. ONE MARKET. THE SEA KEEPS SCORE.</div>
     <div id="title-btns">
       <button class="btn" id="title-play" data-txt="PLAY">PLAY</button>
       <button class="btn blue" id="title-daily" data-notr></button>
@@ -453,19 +453,19 @@ body.touch #tbtns{display:flex}
   </div>
 </div>
 
-<script>window.__RESORT_BUILD='20260727222130';</script>
+<script>window.__RESORT_BUILD='20260728180549';</script>
 <script type="importmap">
 {
   "imports": {
-    "three":        "./vendor/three.module.min.js?v=20260727222130",
-    "./js/i18n.js": "./js/i18n.js?v=20260727222130",
-    "./js/rng.js":  "./js/rng.js?v=20260727222130",
-    "./js/data.js": "./js/data.js?v=20260727222130",
-    "./js/sim.js":  "./js/sim.js?v=20260727222130",
-    "./js/scene.js":"./js/scene.js?v=20260727222130",
-    "./js/shop.js": "./js/shop.js?v=20260727222130",
-    "./js/ghost.js":"./js/ghost.js?v=20260727222130",
-    "./js/audio.js":"./js/audio.js?v=20260727222130"
+    "three":        "./vendor/three.module.min.js?v=20260728180549",
+    "./js/i18n.js": "./js/i18n.js?v=20260728180549",
+    "./js/rng.js":  "./js/rng.js?v=20260728180549",
+    "./js/data.js": "./js/data.js?v=20260728180549",
+    "./js/sim.js":  "./js/sim.js?v=20260728180549",
+    "./js/scene.js":"./js/scene.js?v=20260728180549",
+    "./js/shop.js": "./js/shop.js?v=20260728180549",
+    "./js/ghost.js":"./js/ghost.js?v=20260728180549",
+    "./js/audio.js":"./js/audio.js?v=20260728180549"
   }
 }
 </script>
@@ -477,7 +477,7 @@ body.touch #tbtns{display:flex}
     if (d && !d.textContent) d.textContent = String((e && e.message) || e);
     document.getElementById('boot-error').classList.add('show');
   });
-  import('./js/game.js?v=20260727222130').catch(err => {
+  import('./js/game.js?v=20260728180549').catch(err => {
     document.getElementById('boot-error-detail').textContent = String(err && err.message || err);
     document.getElementById('boot-error').classList.add('show');
   });

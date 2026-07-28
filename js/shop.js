@@ -11,7 +11,7 @@ import {
   RULES, rv, BODIES, SPELLS, SPELL, spellPrice, spellRankCap, spellUnlockTide,
   ITEMS, ITEM, FRUITS, MODS, STALLS, STALL_REACH, CAT_COLOR,
 } from './data.js';
-import { PHASE, tideNow } from './sim.js';
+import { PHASE, ZONE, tideNow } from './sim.js';
 
 let getSim = null;        // () => sim api (rebound on every setSeed)
 let announce = null;      // (text, color, secs)
@@ -104,9 +104,12 @@ export function shopFrame() {
   if (vict && !UI.victory.classList.contains('show')) fillVictory(S);
   UI.victory.classList.toggle('show', vict);
 
-  // --- walkable racks (auto open by proximity, ESC to wave the keeper off) ---
+  // --- walkable racks (auto open by proximity, ESC to wave the keeper off).
+  // Rev 1: the stalls stand in the MARKET, and you are only there on a live
+  // shop break — mid-tide shopping died with the boardwalk, dead castaways
+  // never see a counter. ---
   let near = null;
-  if (S.phase === PHASE.BREAK || S.phase === PHASE.TIDE) {
+  if (S.phase === PHASE.BREAK && !S.hero.dead && S.zone === ZONE.MARKET) {
     let bd = STALL_REACH * STALL_REACH;
     for (const st of STALLS) {
       const dx = S.hero.x - st.x, dz = S.hero.z - st.z;
@@ -427,7 +430,7 @@ function fillCastaway(S) {
   if (!ids.length) {
     const none = document.createElement('div');
     none.className = 'sdesc';
-    none.textContent = TXT('NONE YET — THE RACKS ARE ON THE BOARDWALK');
+    none.textContent = TXT('NONE YET — THE RACKS ARE AT THE MARKET');
     box.appendChild(none);
   }
   for (const id of ids) {
