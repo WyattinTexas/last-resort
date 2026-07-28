@@ -1,4 +1,4 @@
-// LAST RESORT — THE BOARDWALK. Forge, spell racks, fruit stand, surf shack,
+// SURVIVAL QUEST — THE BOARDWALK. Forge, spell racks, fruit stand, surf shack,
 // the castaway sheet and the victory screen. Pure presentation: every purchase
 // goes through the sim's build API, the same calls the CDP battery drives.
 //

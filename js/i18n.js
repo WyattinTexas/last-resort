@@ -1,4 +1,4 @@
-// LAST RESORT — i18n. Ported from the GVT architecture: THE ENGLISH STRING IS
+// SURVIVAL QUEST — i18n. Ported from the GVT architecture: THE ENGLISH STRING IS
 // THE KEY. Every player-facing string in this game passes through TXT() from
 // line 1 so that "English x6" never happens here (GVT's scar, §7 of the spec).
 //

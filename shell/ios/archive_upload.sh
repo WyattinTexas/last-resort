@@ -1,10 +1,10 @@
 #!/bin/bash
-# Archive the LAST RESORT shell + upload to TestFlight via the ASC API key
+# Archive the SURVIVAL QUEST shell + upload to TestFlight via the ASC API key
 # (headless, automatic signing) — same pattern as the FAVOR/GVT/Nation pipeline.
 set -euo pipefail
 
-PROJ_DIR="/Users/drbango/last-resort/shell/ios"
-OUT="${LR_EXPORT_DIR:-/tmp/lastresort_ios_export}"
+PROJ_DIR="/Users/drbango/survival-quest/shell/ios"
+OUT="${SQ_EXPORT_DIR:-/tmp/survivalquest_ios_export}"
 KEY_ID="9Q9CJ93G2Z"
 ISSUER_ID="69a6de8d-27c4-47e3-e053-5b8c7c11a4d1"
 KEY_PATH="$HOME/.appstoreconnect/private/AuthKey_${KEY_ID}.p8"

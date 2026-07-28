@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// LAST RESORT — headless boot + sim smoke test, driven over the Chrome
+// SURVIVAL QUEST — headless boot + sim smoke test, driven over the Chrome
 // DevTools Protocol with node's built-in WebSocket. No puppeteer, no npm.
 //
 //   node tools/cdp_smoke.mjs [url] [--out shots/smoke.png] [--keep]
@@ -35,7 +35,7 @@ const KEEP = args.includes('--keep');
 const PORT = 9227;
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const profile = mkdtempSync(join(tmpdir(), 'lastresort-cdp-'));
+const profile = mkdtempSync(join(tmpdir(), 'survivalquest-cdp-'));
 
 let failures = 0, checks = 0;
 const ok = (cond, msg, extra) => {
@@ -119,7 +119,7 @@ function connect(wsUrl) {
 }
 
 const main = async () => {
-  console.log(`\nLAST RESORT — CDP smoke (link 2 battery)\n  url     ${URL_ARG}\n  profile ${profile}\n`);
+  console.log(`\nSURVIVAL QUEST — CDP smoke (link 2 battery)\n  url     ${URL_ARG}\n  profile ${profile}\n`);
   const cdp = await connect(await findTarget());
   const evalJs = async (expr) => {
     const r = await cdp.send('Runtime.evaluate', {

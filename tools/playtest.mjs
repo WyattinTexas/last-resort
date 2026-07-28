@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// LAST RESORT — the playtest battery (P0 goal, link 3): THREE complete 10-tide
+// SURVIVAL QUEST — the playtest battery (P0 goal, link 3): THREE complete 10-tide
 // runs in a real browser, one per body, ghost-raced back to back, plus a perf
 // probe at the 40-creep cap. Prints the pacing table a human tuner needs.
 //
@@ -17,7 +17,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const URL_ARG = process.argv.slice(2).find(a => !a.startsWith('-')) || 'http://127.0.0.1:8791/';
 const PORT = 9231;
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const profile = mkdtempSync(join(tmpdir(), 'lastresort-pt-'));
+const profile = mkdtempSync(join(tmpdir(), 'survivalquest-pt-'));
 
 const chrome = spawn(CHROME, [
   '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
@@ -63,7 +63,7 @@ function connect(wsUrl) {
 const mmss = t => Math.floor(t / 20 / 60) + ':' + String(Math.floor(t / 20) % 60).padStart(2, '0');
 
 const main = async () => {
-  console.log(`\nLAST RESORT — playtest battery\n  url ${URL_ARG}\n`);
+  console.log(`\nSURVIVAL QUEST — playtest battery\n  url ${URL_ARG}\n`);
   const cdp = await connect(await findTarget());
   const evalJs = async expr => {
     const r = await cdp.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });

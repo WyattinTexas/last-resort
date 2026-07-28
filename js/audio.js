@@ -1,4 +1,4 @@
-// LAST RESORT — THE BAND. Every sound is synthesized in WebAudio at call time;
+// SURVIVAL QUEST — THE BAND. Every sound is synthesized in WebAudio at call time;
 // there are no assets, no fetches, no files (§5 audio plan, done the quick
 // way). Render-side and wall-clock by nature — the sim never hears any of it.
 //

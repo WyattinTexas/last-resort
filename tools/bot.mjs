@@ -1,4 +1,4 @@
-// LAST RESORT — the shopper bot. One brain, two homes: the node balance tools
+// SURVIVAL QUEST — the shopper bot. One brain, two homes: the node balance tools
 // import it, and the CDP battery injects this same source into the page (the
 // export keyword is stripped; nothing else here may depend on module scope).
 //

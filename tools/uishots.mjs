@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// LAST RESORT — the postcard rack. Drives a real headless Chrome through the
+// SURVIVAL QUEST — the postcard rack. Drives a real headless Chrome through the
 // game's moments and photographs each one: title, combat, boss, standings,
 // washout vista, victory. Point it at the LIVE url for the shipping set.
 //
@@ -21,7 +21,7 @@ const DIR = (args.includes('--dir') && args[args.indexOf('--dir') + 1])
 const PORT = 9229;
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const profile = mkdtempSync(join(tmpdir(), 'lastresort-shots-'));
+const profile = mkdtempSync(join(tmpdir(), 'survivalquest-shots-'));
 
 const chrome = spawn(CHROME, [
   '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
@@ -80,7 +80,7 @@ function connect(wsUrl) {
 }
 
 const main = async () => {
-  console.log(`\nLAST RESORT — postcard rack\n  url ${URL_ARG}\n  dir ${DIR}\n`);
+  console.log(`\nSURVIVAL QUEST — postcard rack\n  url ${URL_ARG}\n  dir ${DIR}\n`);
   mkdirSync(DIR, { recursive: true });
   const cdp = await connect(await findTarget());
   const evalJs = async expr => {

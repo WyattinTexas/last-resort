@@ -1,6 +1,6 @@
 import UIKit
 
-// LAST RESORT iOS shell — a fullscreen WKWebView over the live Pages build.
+// SURVIVAL QUEST iOS shell — a fullscreen WKWebView over the live Pages build.
 // The game itself ships from the web (one codebase); this wrapper gives it a
 // home screen icon, landscape lock, persistent storage and TestFlight.
 //

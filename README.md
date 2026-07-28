@@ -1,4 +1,4 @@
-# LAST RESORT
+# SURVIVAL QUEST
 
 Sixteen castaways wash up on a low-poly tropical island. Each claims a fenced
 square on the shore; the market in the middle belongs to everyone. During a tide

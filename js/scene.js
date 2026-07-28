@@ -1,4 +1,4 @@
-// LAST RESORT — THE COVE. Spec §5, "early-2000s low-poly tropical".
+// SURVIVAL QUEST — THE COVE. Spec §5, "early-2000s low-poly tropical".
 //
 // Everything here is cosmetic. The sim does not know this file exists, and this
 // file never writes to the sim. It reads state and draws the in-between.

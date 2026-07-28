@@ -1,4 +1,4 @@
-// LAST RESORT — deterministic randomness.
+// SURVIVAL QUEST — deterministic randomness.
 //
 // LAW (spec §7): seeds carry a VERSION FIELD. A seed without v: is not a seed,
 // it is a bug waiting for the day the generator changes and old replays,

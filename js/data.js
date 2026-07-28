@@ -1,4 +1,4 @@
-// LAST RESORT — THE CONTENT. Bodies, spells, items, fruit, modifiers, stalls.
+// SURVIVAL QUEST — THE CONTENT. Bodies, spells, items, fruit, modifiers, stalls.
 //
 // Everything here is DATA. The spell "engine" in sim.js is one interpreter over
 // the fx descriptors below — sixteen spells, zero bespoke implementations

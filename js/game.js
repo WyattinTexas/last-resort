@@ -1,4 +1,4 @@
-// LAST RESORT — the boot file. Fixed-step loop, input, HUD, debug API.
+// SURVIVAL QUEST — the boot file. Fixed-step loop, input, HUD, debug API.
 //
 // The shape of the loop is the whole point (spec §7):
 //   accumulate real elapsed time -> spend it in whole 20Hz ticks -> render the
@@ -19,7 +19,7 @@ import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSl
 import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, mmss } from './ghost.js';
 import { AUDIO } from './audio.js';
 
-export const VERSION = '0.4.0';
+export const VERSION = '0.4.1';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;

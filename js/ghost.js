@@ -1,4 +1,4 @@
-// LAST RESORT — THE GHOST. Standings, persistence, and the race (P0's
+// SURVIVAL QUEST — THE GHOST. Standings, persistence, and the race (P0's
 // "standings vs ghost", spec §4: the standings board is ALWAYS visible).
 //
 // The sim writes S.tideLog — { tide: { tick, kills, worth } } — and knows

@@ -1,4 +1,4 @@
-// LAST RESORT — THE SIM.
+// SURVIVAL QUEST — THE SIM.
 //
 // This file is pure. It imports no three.js, touches no DOM, reads no clock.
 // Give it a seed and call tick() and it produces the same run every time, on

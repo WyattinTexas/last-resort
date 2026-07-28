@@ -1,11 +1,11 @@
 import UIKit
 import WebKit
 
-// LAST RESORT — iOS shell. The whole app: the live Pages build full-bleed in a
+// SURVIVAL QUEST — iOS shell. The whole app: the live Pages build full-bleed in a
 // WKWebView (same one-codebase pattern as the FAVOR and GVT shells: every web
 // ship updates the app instantly, no review needed).
 //
-// - UA carries "LastResortShell-iOS" so the site can detect the shell later
+// - UA carries "SurvivalQuestShell-iOS" so the site can detect the shell later
 //   (store rules, shell-only features).
 // - localStorage persists via the default website data store — the ghost
 //   records and the mute setting survive relaunches.
@@ -27,13 +27,13 @@ class GameViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
         view.backgroundColor = UIColor(red: 0x06 / 255.0, green: 0x2A / 255.0, blue: 0x38 / 255.0, alpha: 1)
 
         let config = WKWebViewConfiguration()
-        config.applicationNameForUserAgent = "LastResortShell-iOS/1.0"
+        config.applicationNameForUserAgent = "SurvivalQuestShell-iOS/1.0"
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []   // the GVT ships-silent scar
         config.websiteDataStore = .default()
 
         let ucc = WKUserContentController()
-        let boot = "window.__LRSHELL = { platform: 'ios', build: 1 };"
+        let boot = "window.__SQSHELL = { platform: 'ios', build: 2 };"
         ucc.addUserScript(WKUserScript(source: boot, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         config.userContentController = ucc
 

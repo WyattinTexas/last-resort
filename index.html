@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="theme-color" content="#0A3B4C">
-<title>LAST RESORT</title>
+<title>SURVIVAL QUEST</title>
 <meta name="description" content="Sixteen castaways, sixteen squares, one market in the middle — and a sea that keeps sending worse things ashore. Build a hero, out-survive the tides.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🏝️</text></svg>">
 <style>
@@ -107,7 +107,7 @@ body.titleup #forge{display:none}   /* the postcard, not the menu, sells the tit
 #wm-top,#wm-bot{font-weight:900; color:#F7FBFF; letter-spacing:.22em; text-indent:.22em;
   -webkit-text-stroke:2px rgba(110,84,21,.95);
   text-shadow:0 4px 0 #0A3B4C, 0 7px 0 rgba(4,24,34,.9), 0 14px 30px rgba(0,0,0,.55)}
-#wm-top{font-size:min(12vw,86px)}
+#wm-top{font-size:min(10vw,72px)}
 #wm-bot{font-size:min(16vw,118px); color:#FFEFB8}
 #wm-rule{width:min(430px,70vw); height:3px; margin:16px auto 10px;
   background:linear-gradient(90deg, transparent, var(--gold) 18%, var(--gold) 82%, transparent);
@@ -431,8 +431,8 @@ body.touch #tbtns{display:flex}
 <div id="title">
   <div>
     <div id="wordmark" data-notr>
-      <div id="wm-top">LAST</div>
-      <div id="wm-bot">RESORT</div>
+      <div id="wm-top">SURVIVAL</div>
+      <div id="wm-bot">QUEST</div>
     </div>
     <div id="wm-rule"></div>
     <div id="wm-tag" data-txt="SIXTEEN SQUARES. ONE MARKET. THE SEA KEEPS SCORE.">SIXTEEN SQUARES. ONE MARKET. THE SEA KEEPS SCORE.</div>
@@ -453,19 +453,19 @@ body.touch #tbtns{display:flex}
   </div>
 </div>
 
-<script>window.__RESORT_BUILD='20260728180549';</script>
+<script>window.__RESORT_BUILD='20260728193149';</script>
 <script type="importmap">
 {
   "imports": {
-    "three":        "./vendor/three.module.min.js?v=20260728180549",
-    "./js/i18n.js": "./js/i18n.js?v=20260728180549",
-    "./js/rng.js":  "./js/rng.js?v=20260728180549",
-    "./js/data.js": "./js/data.js?v=20260728180549",
-    "./js/sim.js":  "./js/sim.js?v=20260728180549",
-    "./js/scene.js":"./js/scene.js?v=20260728180549",
-    "./js/shop.js": "./js/shop.js?v=20260728180549",
-    "./js/ghost.js":"./js/ghost.js?v=20260728180549",
-    "./js/audio.js":"./js/audio.js?v=20260728180549"
+    "three":        "./vendor/three.module.min.js?v=20260728193149",
+    "./js/i18n.js": "./js/i18n.js?v=20260728193149",
+    "./js/rng.js":  "./js/rng.js?v=20260728193149",
+    "./js/data.js": "./js/data.js?v=20260728193149",
+    "./js/sim.js":  "./js/sim.js?v=20260728193149",
+    "./js/scene.js":"./js/scene.js?v=20260728193149",
+    "./js/shop.js": "./js/shop.js?v=20260728193149",
+    "./js/ghost.js":"./js/ghost.js?v=20260728193149",
+    "./js/audio.js":"./js/audio.js?v=20260728193149"
   }
 }
 </script>
@@ -477,7 +477,7 @@ body.touch #tbtns{display:flex}
     if (d && !d.textContent) d.textContent = String((e && e.message) || e);
     document.getElementById('boot-error').classList.add('show');
   });
-  import('./js/game.js?v=20260728180549').catch(err => {
+  import('./js/game.js?v=20260728193149').catch(err => {
     document.getElementById('boot-error-detail').textContent = String(err && err.message || err);
     document.getElementById('boot-error').classList.add('show');
   });
