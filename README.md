@@ -85,7 +85,7 @@ js/sim.js             THE SIM — pure, deterministic, testable in node
 js/scene.js           the island: squares, market, palette, zone camera, draw
 js/shop.js            the market UI: forge, racks, castaway sheet, victory
 js/game.js            fixed-step loop, input, HUD, window.RESORT
-tools/cdp_smoke.mjs   headless 58-check battery over CDP (incl. a full 10-tide run)
+tools/cdp_smoke.mjs   headless 90-check battery over CDP (incl. a full 10-tide run)
 tools/bot.mjs         the shopper bot — shared by node balance tools and the battery
 tools/shopper.mjs     balance matrix: STAND (run-1 proxy) vs KITE (run-3 proxy)
 bump.sh               stamp a new ?v= before every push
@@ -102,7 +102,7 @@ code, kept as law. Rank scaling is one rule everywhere: `value = a + b × (rank-
 python3 -m http.server 8791     # no build step; it is just files
 open http://127.0.0.1:8791/
 
-node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 58 checks + a screenshot
+node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 90 checks + a screenshot
 node tools/shopper.mjs                               # the balance matrix
 ```
 
