@@ -16,10 +16,10 @@ import { createSim, COVE, MARKET, ZONE, TUNE, PHASE, SIM_HZ, TICK_S, creepHp, ti
 import { createScene, PAL } from './scene.js';
 import { SPELL, SPELLS, BODIES, MOD, CAT_COLOR, RULES } from './data.js';
 import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSlot } from './shop.js';
-import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, mmss } from './ghost.js';
+import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, toggleStandings, mmss } from './ghost.js';
 import { AUDIO } from './audio.js';
 
-export const VERSION = '0.5.0';
+export const VERSION = '0.6.0';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;
@@ -40,12 +40,12 @@ const HUD = {
   ann: el('ann'), seedLabel: el('seed-label'), build: el('build-label'),
   downPanel: el('down-panel'), downText: el('down-text'),
   downCount: el('down-count'), downHint: el('down-hint'),
-  barnote: el('barnote'),
   title: el('title'), titlePlay: el('title-play'), titleDaily: el('title-daily'),
   titleFoot: el('title-foot'),
   slots: { Q: el('slot-q'), W: el('slot-w'), E: el('slot-e'), R: el('slot-r') },
   bar: el('bar'),
-  btnSheet: el('btn-sheet'), btnMute: el('btn-mute'), btnMuteIco: el('btn-mute-ico'),
+  herobox: el('herobox'),
+  muteBtns: [...document.querySelectorAll('.mutebtn')],
 };
 
 // A coarse pointer means thumbs: the shell, a phone browser, an iPad. The CSS
@@ -103,7 +103,7 @@ const ZOFF = { x: 0, z: 0 };
 function boot() {
   localizeDom(document);
   if (IS_TOUCH) document.body.classList.add('touch');
-  HUD.btnMuteIco.textContent = AUDIO.muted ? '🔇' : '🔊';   // resort.mute persists
+  syncMuteIcons();                                          // resort.mute persists
 
   const qSeed = (location.search.match(/[?&]seed=([A-Za-z0-9_-]+)/) || [])[1];
   sim = createSim(makeSeed(qSeed || undefined));
@@ -606,10 +606,21 @@ function drawOverlay(alpha, dt) {
 // HUD
 // ---------------------------------------------------------------------------
 let lastHud = '';
+let lastBodyKey = '';
 function drawHud() {
   const S = sim.S;
   const inTide = S.phase === PHASE.TIDE;
   const nextTide = inTide ? S.tide : S.tide + 1;
+
+  // WS2: the CSS visibility matrix keys off these three stamps — one cached
+  // string compare per frame, and every phase-gate rule lives in the sheet.
+  const bodyKey = S.phase + '|' + S.zone + '|' + S.hero.dead;
+  if (bodyKey !== lastBodyKey) {
+    lastBodyKey = bodyKey;
+    document.body.dataset.phase = S.phase;
+    document.body.dataset.zone = S.zone;
+    document.body.classList.toggle('dead', S.hero.dead);
+  }
 
   // the lifeguard rotates a hint every few seconds; both panels read the same one
   if (tSec > hintAt) {
@@ -620,7 +631,7 @@ function drawHud() {
     HUD.downHint.textContent = '“' + h + '”';
   }
 
-  const key = [S.phase, S.tide, S.killed, S.quota, S.gold, S.pearls, S.kills,
+  const key = [S.phase, S.zone, S.tide, S.killed, S.quota, S.gold, S.pearls, S.kills,
     Math.round(S.hero.hp), S.hero.maxHp, Math.ceil(S.phaseTicks / SIM_HZ), S.creeps.length, S.queue,
     S.level, S.xp, S.skillPts, S.bodyId, Math.round(S.hero.shield), S.hero.dead,
     anyShopOpen()].join('|');    // a held countdown never re-keys — the sheet state must
@@ -665,17 +676,25 @@ function drawHud() {
       const ticksLeft = S.phaseTicks + (S.phase === PHASE.WASHOUT ? TUNE.deadBreakTicks : 0);
       HUD.downCount.textContent = mmss(ticksLeft);
     }
-    HUD.barnote.style.display = Object.values(S.slots).some(v => v) ? 'none' : 'block';
   }
 
   // WS1: a stunned hero's whole cast bar grays and shakes (cast already
   // refuses with why:'stun'; now the refusal is visible before you try)
   HUD.bar.classList.toggle('stunned', S.hero.stun > 0 && !S.hero.dead);
 
-  // cooldown slots run every frame — they are the game's wristwatch
+  // cooldown slots run every frame — they are the game's wristwatch.
+  // WS2: a slot RENDERS only while it holds a spell, and the bar only if any
+  // slot does — the first market purchase births the bar one slot wide, and
+  // the R slot's arrival IS the "bigs are live" fanfare. The flex bar
+  // re-centres itself; keyboard QWER still reaches hidden slots (the empty
+  // announce keeps teaching there).
+  let anySlotted = false;
   for (const k of ['Q', 'W', 'E', 'R']) {
     const slot = HUD.slots[k];
     const id = S.slots[k];
+    const want = id ? '' : 'none';
+    if (slot.style.display !== want) slot.style.display = want;
+    if (id) anySlotted = true;
     const ico = slot.querySelector('.ico');
     const cd = slot.querySelector('.cd');
     const cdt = slot.querySelector('.cdt');
@@ -698,6 +717,8 @@ function drawHud() {
     cdt.textContent = left > 0 ? String(Math.ceil(left / SIM_HZ)) : '';
     slot.classList.toggle('ready', left <= 0);
   }
+  const barWant = anySlotted ? '' : 'none';
+  if (HUD.bar.style.display !== barWant) HUD.bar.style.display = barWant;
 
   if (annUntil && tSec > annUntil) { HUD.ann.classList.remove('show'); annUntil = 0; }
 }
@@ -797,13 +818,15 @@ function wireInput() {
     });
   }
 
-  // the keyboard-only keys, as corner buttons for thumbs
-  HUD.btnSheet.addEventListener('click', () => toggleCastaway());
-  HUD.btnMute.addEventListener('click', () => {
-    const m = AUDIO.toggleMute();
-    HUD.btnMuteIco.textContent = m ? '🔇' : '🔊';
-    announce(m ? TXT('SOUND OFF — THE SEA GOES QUIET') : TXT('SOUND ON — STEEL PANS AND BAD NEWS'), '#8CF0E4', 2);
+  // WS2: zero floating buttons. The herobox is the castaway-sheet door (its
+  // CSS carries the documented tap-through exception), and the mute rides the
+  // calm-phase panels — one handler, every icon synced.
+  HUD.herobox.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    AUDIO.unlock();
+    toggleCastaway();
   });
+  for (const b of HUD.muteBtns) b.addEventListener('click', toggleMuteUi);
   // the sheet's own header closes it (the "C CLOSES" hint has no key on glass)
   document.querySelector('#castaway .chead').addEventListener('click', () => toggleCastaway(false));
 
@@ -812,14 +835,21 @@ function wireInput() {
     if (k === ' ' || k === 'enter') { if (sim.skipTide()) e.preventDefault(); }
     if (k === 'escape') closeShops();
     if (k === 'c') toggleCastaway();
-    if (k === 'm') {
-      const m = AUDIO.toggleMute();
-      HUD.btnMuteIco.textContent = m ? '🔇' : '🔊';
-      announce(m ? TXT('SOUND OFF — THE SEA GOES QUIET') : TXT('SOUND ON — STEEL PANS AND BAD NEWS'), '#8CF0E4', 2);
-    }
+    if (k === 'm') toggleMuteUi();
     if (k >= '1' && k <= '6') useItemSlot(Number(k) - 1);
     if ('qwer'.includes(k) && k.length === 1) castSlot(k.toUpperCase(), false);
   });
+}
+
+function syncMuteIcons() {
+  const ico = AUDIO.muted ? '🔇' : '🔊';
+  for (const b of HUD.muteBtns) if (b.textContent !== ico) b.textContent = ico;
+}
+
+function toggleMuteUi() {
+  const m = AUDIO.toggleMute();
+  syncMuteIcons();
+  announce(m ? TXT('SOUND OFF — THE SEA GOES QUIET') : TXT('SOUND ON — STEEL PANS AND BAD NEWS'), '#8CF0E4', 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -915,6 +945,18 @@ function installDebugApi() {
     // presentation debug surfaces the battery leans on
     ghost: ghostDebug,
     audio: AUDIO,
+    // WS2 context-sensitive HUD probes — the battery reads these + computed
+    // styles and POLLS, never sleep-asserts (rev-1 gotcha 7)
+    ui: {
+      get phaseAttr() { return document.body.dataset.phase || null; },
+      get zoneAttr() { return document.body.dataset.zone || null; },
+      get qwerVisible() { return getComputedStyle(HUD.bar).display !== 'none'; },
+      get slotsVisible() { return ['Q', 'W', 'E', 'R'].filter(k => getComputedStyle(HUD.slots[k]).display !== 'none'); },
+      get itemChipCount() { return document.querySelectorAll('#items .itemchip').length; },
+      get standingsCollapsed() { return ghostDebug.collapsed; },
+      toggleStandings(force) { return toggleStandings(force); },
+      get muteButtonCount() { return HUD.muteBtns.length; },
+    },
     // WS1 combat-feel probes: the battery POLLS these, never sleep-asserts
     fx: {
       get hitstopActive() { return performance.now() < hitstopUntil; },

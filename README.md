@@ -13,7 +13,21 @@ A zero-install browser game — one page, three.js, **no build step, no backend*
 
 ---
 
-## Status — P0 COMPLETE + REV 1 (the squares & the market) + REV 2 WS1 (combat feel)
+## Status — P0 COMPLETE + REV 1 (the squares & the market) + REV 2 WS1 (combat feel) + WS2 (mobile layout)
+
+**Rev 2 WS2 (v0.6.0)** made the HUD **context-sensitive** — chrome earns its
+pixels per phase, or it dies. A fresh run mid-tide shows **zero buttons**: the
+cast bar is *born* at your first spell purchase (one slot per slotted spell —
+the R slot's arrival is the "bigs are live" fanfare), item chips exist only
+while items do, the tidebox lives only during tides, purse/HP only where you
+can spend or bleed, and the seed stamp leaves the fight on glass. The floating
+C/M buttons are gone: **your own HP panel opens the castaway sheet**, and the
+mute rides the calm-phase panels (break, washout, title). At phone heights the
+standings collapse to a one-line race strip (`T4 0:58 · YOU +0:12`) — tap for
+the full board, it folds back at the next tide; desktop keeps the board always
+up. Calm panels go compact at 390pt, every free-floating control is 60px+
+under a thumb, and the Forge scrolls (ready for WS6's eight cards). Zero sim
+edits — full-run times are byte-identical to v0.5.0.
 
 **Rev 2 WS1 (v0.5.0)** made the fights *feel* like classic RTS hero combat:
 every attacker now runs a full **windup → strike → backswing** swing cycle
@@ -99,7 +113,8 @@ js/sim.js             THE SIM — pure, deterministic, testable in node
 js/scene.js           the island: squares, market, palette, zone camera, draw
 js/shop.js            the market UI: forge, racks, castaway sheet, victory
 js/game.js            fixed-step loop, input, HUD, window.RESORT
-tools/cdp_smoke.mjs   headless 107-check battery over CDP (incl. a full 10-tide run)
+tools/cdp_smoke.mjs   headless 131-check battery over CDP (incl. a full 10-tide run)
+tools/touch_probe.mjs 62 real-touch checks at 844×390 (dispatched taps, thumb audit)
 tools/bot.mjs         the shopper bot — shared by node balance tools and the battery
 tools/shopper.mjs     balance matrix: STAND (run-1 proxy) vs KITE (run-3 proxy)
 bump.sh               stamp a new ?v= before every push
@@ -116,7 +131,8 @@ code, kept as law. Rank scaling is one rule everywhere: `value = a + b × (rank-
 python3 -m http.server 8791     # no build step; it is just files
 open http://127.0.0.1:8791/
 
-node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 107 checks + a screenshot
+node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 131 checks + a screenshot
+node tools/touch_probe.mjs http://127.0.0.1:8791/    # 62 touch checks at 844×390
 node tools/shopper.mjs                               # the balance matrix
 ```
 

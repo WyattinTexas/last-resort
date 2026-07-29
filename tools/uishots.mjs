@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // SURVIVAL QUEST — the postcard rack. Drives a real headless Chrome through the
 // game's moments and photographs each one: title, combat, boss, standings,
-// washout vista, victory. Point it at the LIVE url for the shipping set.
+// washout vista, victory, the WS1 combat-feel five, and the two WS2 phone
+// frames (844×390, touch). Point it at the LIVE url for the shipping set.
 //
 //   node tools/uishots.mjs [url] [--dir shots]
 //
@@ -273,6 +274,43 @@ const main = async () => {
   })()`);
   await sleep(800);
   await snap('feel-missile.png');
+
+  // 8. WS2 MOBILE — the phone frames at 844×390 under real touch emulation:
+  // a built hero mid-tide with ZERO floating buttons (the workstream's
+  // poster) and the compact market break. IS_TOUCH sniffs at boot, so the
+  // page re-navigates under the emulation and drives a fresh run.
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 2, mobile: true });
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await cdp.send('Page.navigate', { url: URL_ARG });
+  for (let i = 0; i < 90; i++) {
+    await sleep(500);
+    try { if (await evalJs('!!(window.RESORT && window.RESORT.ready)')) break; } catch {}
+  }
+  await evalJs(`(()=>{
+    RESORT.pause(true);
+    RESORT.setSeed('mobile-postcard');
+    RESORT.pickBody('wrestler');
+    RESORT.givePearls(10); RESORT.giveGold(600);
+    RESORT.buySpell('fireball'); RESORT.buySpell('spinslash');
+    RESORT.buyItem('guava'); RESORT.buyItem('flippers');
+    RESORT.skipTide();
+    RESORT.runTicks(170);
+    return RESORT.state.tide;
+  })()`);
+  await evalJs('RESORT.resume()');
+  await sleep(1400);
+  await snap('mobile-tide-clean.png');
+
+  await evalJs(`(()=>{
+    RESORT.pause(true);
+    const S = RESORT.state;
+    let g = 0;
+    while (S.phase !== 'BREAK' && g++ < 20*60*3) RESORT.runTicks(1);
+    return S.phase;
+  })()`);
+  await evalJs('RESORT.resume()');
+  await sleep(1600);
+  await snap('mobile-market.png');
 
   console.log('\ndone\n');
 };

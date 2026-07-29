@@ -347,22 +347,18 @@ function fillItems(S) {
   lastItemsKey = ikey;
   const box = UI.items;
   box.textContent = '';
-  for (let i = 0; i < RULES.itemSlots; i++) {
-    const inst = S.items[i];
+  // WS2: occupied chips ONLY — no items, no phantom UI. S.items is dense
+  // (buys push, drinks splice), so the loop index IS the honest 1-6 key.
+  for (let i = 0; i < S.items.length; i++) {
+    const it = ITEM[S.items[i].id];
     const chip = document.createElement('div');
-    if (!inst) {
-      chip.className = 'itemchip empty';
-      chip.textContent = '·';
-    } else {
-      const it = ITEM[inst.id];
-      chip.className = 'itemchip' + (it.kind === 'potion' ? ' potion' : '');
-      chip.textContent = it.ico;
-      chip.title = TXT(it.name) + ' — ' + TXT(it.desc);
-      const key = document.createElement('b');
-      key.textContent = String(i + 1);
-      chip.appendChild(key);
-      if (it.kind === 'potion') chip.addEventListener('click', () => useItemSlot(i));
-    }
+    chip.className = 'itemchip' + (it.kind === 'potion' ? ' potion' : ' worn');
+    chip.textContent = it.ico;
+    chip.title = TXT(it.name) + ' — ' + TXT(it.desc);
+    const key = document.createElement('b');
+    key.textContent = String(i + 1);
+    chip.appendChild(key);
+    if (it.kind === 'potion') chip.addEventListener('click', () => useItemSlot(i));
     box.appendChild(chip);
   }
 }

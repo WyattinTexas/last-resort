@@ -28,6 +28,19 @@ let savedThisRun = false; // a victory already ran the save; don't double-fold
 let lastBoardKey = '';
 let victoryLine = '';     // filled at victory; the victory screen reads it
 
+// WS2: at phone heights the full board collides with the herobox, so small
+// viewports boot COLLAPSED to a one-line strip ("T4 0:58" + the lead chip);
+// a tap opens the ten rows and the next tide start folds them away again.
+// Desktop (860px) boots expanded — the board is ALWAYS up there (spec §4).
+const collapseDefault = () => matchMedia('(max-height: 480px)').matches;
+let stCollapsed = collapseDefault();
+
+export function toggleStandings(force) {
+  stCollapsed = force !== undefined ? !!force : !stCollapsed;
+  lastBoardKey = '';
+  return stCollapsed;
+}
+
 const el = id => document.getElementById(id);
 const UI = {};
 
@@ -112,7 +125,12 @@ export function initGhost(opts) {
   getSim = opts.getSim;
   announce = opts.announce;
   onMoment = opts.onMoment || (() => {});
-  for (const id of ['standings', 'st-lead', 'st-rows', 'st-foot', 'victory-ghost', 'title-ghost']) UI[id] = el(id);
+  for (const id of ['standings', 'st-label', 'st-lead', 'st-rows', 'st-foot', 'victory-ghost', 'title-ghost']) UI[id] = el(id);
+  // WS2: the header strip is the board's toggle (its shead alone takes taps)
+  document.querySelector('#standings .shead').addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    toggleStandings();
+  });
   ghostRunStart();
 }
 
@@ -139,6 +157,11 @@ function fillTitleGhost() {
 
 export function ghostEvent(e) {
   const S = getSim().S;
+  // WS2: glass shows the board when you ask, never squats — an opened board
+  // folds back to the small-viewport default when the next tide rolls in.
+  // (Desktop's default is expanded, so this is a no-op there and the board
+  // stays ALWAYS up — spec §4.)
+  if (e.type === 'tide_start' && collapseDefault() && !stCollapsed) toggleStandings(true);
   if (e.type === 'tide_clear') {
     const t = e.tide;
     const g = ghost && ghost.tides[t];
@@ -205,9 +228,11 @@ export function ghostFrame() {
   }
 
   // cheap redraw: only when a second flips or state moves
-  const key = [S.tide, S.cleared, S.phase, Math.floor(S.tick / 20), ghost ? ghost.totalTick : 0].join('|');
+  const key = [S.tide, S.cleared, S.phase, Math.floor(S.tick / 20), ghost ? ghost.totalTick : 0, stCollapsed].join('|');
   if (key === lastBoardKey) return;
   lastBoardKey = key;
+
+  UI.standings.classList.toggle('collapsed', stCollapsed);
 
   // header chip: who holds the race as of the last common clear
   let lead = '';
@@ -228,6 +253,15 @@ export function ghostFrame() {
 
   const rows = UI['st-rows'];
   rows.textContent = '';
+
+  // WS2 collapsed: the header IS the board — current tide + the live run
+  // clock in the label, the lead chip untouched; no rows built (cheaper, and
+  // the row count becomes the honest probe).
+  if (stCollapsed) {
+    UI['st-label'].textContent = 'T' + (S.phase === 'TIDE' ? S.tide : S.tide + 1) + ' ' + mmss(S.tick);
+    return;
+  }
+  UI['st-label'].textContent = TXT('STANDINGS');
   const head = document.createElement('div');
   head.className = 'strow head';
   head.innerHTML = '<div class="stt" data-notr>~</div>';
@@ -267,6 +301,7 @@ export function ghostFrame() {
 export const ghostDebug = {
   get ghost() { return ghost; },
   get leader() { return leader; },
+  get collapsed() { return stCollapsed; },
   key() { return ghostKey(getSim().S.seed); },
   load(key) { return loadRecord(key); },
   fold() { return foldRun(getSim().S); },

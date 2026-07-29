@@ -710,6 +710,135 @@ const main = async () => {
     'the combat kit exists and the headless context was never created', JSON.stringify(audioKit));
   ok(audioKit.fired >= 2, 'combat cues fired through the event wiring (counted before the unlock gate)', `${audioKit.fired} cue kinds`);
 
+  // --- 8.8 WS2 CONTEXT-SENSITIVE HUD: chrome earns its pixels -----------
+  console.log('\nWS2 CONTEXT-SENSITIVE HUD — phase-gated chrome, progressive QWER, the strip');
+
+  await evalJs('RESORT.pause(true)');
+  await evalJs('RESORT.setSeed("ws2-hud")');
+  const forgeUi = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && RESORT.ui.phaseAttr !== 'FORGE'; i++) await new Promise(r => setTimeout(r, 100));
+    const cs = id => getComputedStyle(document.getElementById(id)).display;
+    return { phase: RESORT.ui.phaseAttr, tidebox: cs('tidebox'), purse: cs('purse'), hero: cs('herobox'),
+      qwer: RESORT.ui.qwerVisible, chips: RESORT.ui.itemChipCount,
+      barnoteGone: !document.getElementById('barnote'), tbtnsGone: !document.getElementById('tbtns') };
+  })()`);
+  ok(forgeUi.phase === 'FORGE' && forgeUi.tidebox === 'none' && forgeUi.purse === 'none' && forgeUi.hero === 'none',
+    'FORGE strips the fight chrome (tidebox/purse/herobox all dark)', JSON.stringify([forgeUi.tidebox, forgeUi.purse, forgeUi.hero]));
+  ok(forgeUi.qwer === false && forgeUi.chips === 0, 'no cast bar and no item chips before anything is owned');
+  ok(forgeUi.barnoteGone && forgeUi.tbtnsGone, 'the barnote hint line and the floating C/M buttons are GONE from the document');
+
+  await evalJs('RESORT.pickBody("wrestler")');
+  const breakUi = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && RESORT.ui.phaseAttr !== 'BREAK'; i++) await new Promise(r => setTimeout(r, 100));
+    const cs = id => getComputedStyle(document.getElementById(id)).display;
+    return { phase: RESORT.ui.phaseAttr, zone: RESORT.ui.zoneAttr, tidebox: cs('tidebox'), purse: cs('purse'), hero: cs('herobox') };
+  })()`);
+  ok(breakUi.phase === 'BREAK' && breakUi.zone === 'MARKET', 'data-phase/zone stamp the market break', JSON.stringify([breakUi.phase, breakUi.zone]));
+  ok(breakUi.tidebox === 'none', 'the tidebox stays dark during a break — #break-next already previews the tide');
+  ok(breakUi.purse !== 'none' && breakUi.hero !== 'none', 'purse + herobox earn their pixels on a LIVE break');
+
+  // progressive QWER: the bar is born at the first purchase, dies on respec
+  ok(await evalJs('RESORT.ui.qwerVisible') === false && (await evalJs('RESORT.ui.slotsVisible')).length === 0,
+    'nothing slotted -> no bar, no slots');
+  await evalJs('RESORT.givePearls(10)');
+  await evalJs('RESORT.buySpell("fireball")');
+  const oneSlot = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && !RESORT.ui.qwerVisible; i++) await new Promise(r => setTimeout(r, 100));
+    return { vis: RESORT.ui.qwerVisible, slots: RESORT.ui.slotsVisible }; })()`);
+  ok(oneSlot.vis === true && oneSlot.slots.join('') === 'Q',
+    'the FIRST purchase births the bar one slot wide (auto-racked to Q)', JSON.stringify(oneSlot.slots));
+  await evalJs('RESORT.buySpell("bulwark")');
+  const twoSlots = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && RESORT.ui.slotsVisible.length < 2; i++) await new Promise(r => setTimeout(r, 100));
+    return RESORT.ui.slotsVisible; })()`);
+  ok(twoSlots.join('') === 'QW', 'the second purchase grows it to two', JSON.stringify(twoSlots));
+  await evalJs('RESORT.respec()');
+  const respecBar = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && RESORT.ui.qwerVisible; i++) await new Promise(r => setTimeout(r, 100));
+    return RESORT.ui.qwerVisible; })()`);
+  ok(respecBar === false, 'a respec empties every slot and the bar vanishes with them — own nothing, see nothing');
+
+  // occupied-only item chips
+  await evalJs('RESORT.giveGold(300)');
+  await evalJs('RESORT.buyItem("guava")');
+  const chipOn = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && RESORT.ui.itemChipCount !== 1; i++) await new Promise(r => setTimeout(r, 100));
+    return RESORT.ui.itemChipCount; })()`);
+  ok(chipOn === 1, 'one item -> exactly one chip (no phantom empties)', `chips=${chipOn}`);
+  await evalJs(`RESORT.useItem(RESORT.state.items.findIndex(x => x.id === 'guava'))`);
+  const chipOff = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && RESORT.ui.itemChipCount !== 0; i++) await new Promise(r => setTimeout(r, 100));
+    return RESORT.ui.itemChipCount; })()`);
+  ok(chipOff === 0, 'the drunk potion leaves no husk behind');
+
+  // the standings strip: desktop boots EXPANDED (the :always-up law), the
+  // toggle collapses to a live strip and back — leave it as found
+  ok(await evalJs('RESORT.ui.standingsCollapsed') === false,
+    'desktop keeps the board EXPANDED by default (spec §4: the race is always on)');
+  await evalJs('RESORT.ui.toggleStandings()');
+  const stripState = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && document.querySelectorAll('#st-rows .strow').length; i++) await new Promise(r => setTimeout(r, 100));
+    return { rows: document.querySelectorAll('#st-rows .strow').length,
+      label: document.getElementById('st-label').textContent,
+      collapsed: RESORT.ui.standingsCollapsed }; })()`);
+  ok(stripState.collapsed === true && stripState.rows === 0 && /^T\d+ \d+:\d{2}$/.test(stripState.label),
+    'collapsed = a one-line strip: zero rows, tide + live clock in the label', stripState.label);
+  await evalJs('RESORT.ui.toggleStandings()');
+  const boardBack = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && document.querySelectorAll('#st-rows .strow').length !== 11; i++) await new Promise(r => setTimeout(r, 100));
+    return document.querySelectorAll('#st-rows .strow').length; })()`);
+  ok(boardBack === 11, 'toggling back rebuilds the full board (header + ten tides)');
+
+  // the mute moved into the calm panels: one truth, every icon syncs
+  ok(await evalJs('RESORT.ui.muteButtonCount') >= 3, 'mute buttons ride the break + down panels and the title',
+    `count=${await evalJs('RESORT.ui.muteButtonCount')}`);
+  const mProbe = await evalJs(`(()=>{
+    const m0 = RESORT.audio.muted;
+    document.querySelector('#break-panel .mutebtn').click();
+    const m1 = RESORT.audio.muted;
+    const icons = [...document.querySelectorAll('.mutebtn')].map(b => b.textContent);
+    document.querySelector('#down-panel .mutebtn').click();
+    const m2 = RESORT.audio.muted;
+    return { m0, m1, m2, sync: icons.every(i => i === (m1 ? '🔇' : '🔊')) }; })()`);
+  ok(mProbe.m1 === !mProbe.m0 && mProbe.m2 === mProbe.m0 && mProbe.sync,
+    'ANY mute instance flips the one truth and every icon syncs', JSON.stringify(mProbe));
+  ok(await evalJs('RESORT.audio.unlocked') === false, 'headless mute taps still never create an audio context');
+
+  // the port flips the zone stamp (the skip lands on the next tick — run a few)
+  await evalJs('RESORT.skipTide(); RESORT.runTicks(3)');
+  const tideAttr = await evalJs(`(async()=>{
+    for (let i = 0; i < 40 && RESORT.ui.phaseAttr !== 'TIDE'; i++) await new Promise(r => setTimeout(r, 100));
+    const cs = id => getComputedStyle(document.getElementById(id)).display;
+    return { phase: RESORT.ui.phaseAttr, zone: RESORT.ui.zoneAttr, tidebox: cs('tidebox'), stamp: cs('stamp') }; })()`);
+  ok(tideAttr.phase === 'TIDE' && tideAttr.zone === 'SQUARE', 'the port flips data-zone MARKET->SQUARE with the tide');
+  ok(tideAttr.tidebox !== 'none', 'the tidebox returns for the fight — the quota IS the fight');
+  ok(tideAttr.stamp !== 'none', 'the seed stamp keeps its desktop post (touch-only rule untouched here)');
+
+  // washout + the dead break: the matrix's dark half
+  const washUi = await evalJs(`(async()=>{
+    const S = RESORT.state;
+    S.hero.hp = 1;
+    RESORT.spawn(2, 'crab');
+    for (const c of S.creeps) { c.x = S.hero.x; c.z = S.hero.z - 1.5; c.px = c.x; c.pz = c.z; }
+    let g = 0;
+    while (S.phase !== 'WASHOUT' && g++ < 20*60) RESORT.runTicks(1);
+    for (let i = 0; i < 40 && RESORT.ui.phaseAttr !== 'WASHOUT'; i++) await new Promise(r => setTimeout(r, 100));
+    const cs = id => getComputedStyle(document.getElementById(id)).display;
+    return { attr: RESORT.ui.phaseAttr, tidebox: cs('tidebox'), purse: cs('purse'), bar: cs('bar'),
+      dead: document.body.classList.contains('dead') }; })()`);
+  ok(washUi.attr === 'WASHOUT' && washUi.tidebox === 'none' && washUi.purse === 'none' && washUi.bar === 'none',
+    'WASHOUT strips tidebox/purse/cast bar — the postcard breathes', JSON.stringify([washUi.tidebox, washUi.purse, washUi.bar]));
+  ok(washUi.dead === true, 'body.dead marks the down state for the sheet');
+  const deadBreakUi = await evalJs(`(async()=>{
+    let g = 0;
+    while (RESORT.state.phase === 'WASHOUT' && g++ < 200) RESORT.runTicks(1);
+    for (let i = 0; i < 40 && RESORT.ui.phaseAttr !== 'BREAK'; i++) await new Promise(r => setTimeout(r, 100));
+    const cs = id => getComputedStyle(document.getElementById(id)).display;
+    return { attr: RESORT.ui.phaseAttr, dead: document.body.classList.contains('dead'),
+      purse: cs('purse'), hero: cs('herobox') }; })()`);
+  ok(deadBreakUi.attr === 'BREAK' && deadBreakUi.dead && deadBreakUi.purse === 'none' && deadBreakUi.hero === 'none',
+    'a DEAD break keeps the shopping chrome dark — the market is for the living', JSON.stringify(deadBreakUi));
+
   // --- 9. LIVE FRAME + SCREENSHOT ---------------------------------------
   console.log('\nRENDER');
   await evalJs('RESORT.i18nAudit(true)');
