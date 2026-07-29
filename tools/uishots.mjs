@@ -545,11 +545,14 @@ const main = async () => {
   await snap('ws5-keg.png');
   await evalJs('(RESORT.fx.freeze(0), 1)');
 
-  // 7.10 WS6 HEROES — the eight-card FORGE rack (the roster on one poster;
-  // the forge frame is pre-announce, so no outwait — but frames-poll after
-  // setSeed per the WS4 shot law), then the COCONUT SLINGER mid-lob in a t2
-  // square: the missile frozen mid-flight at LONG TOSS range.
+  // 7.10 WS6 HEROES — the eight-card FORGE rack (the roster on one poster),
+  // then the COCONUT SLINGER mid-lob in a t2 square: the missile frozen
+  // mid-flight at LONG TOSS range. The forge frame is pre-announce for THIS
+  // seed, but the PREVIOUS scene's tide announce is still fading — outwait
+  // it (WS5 gotcha 5: a forge poster must not caption itself TIDE 7), then
+  // frames-poll after setSeed per the WS4 shot law.
   await evalJs('(RESORT.pause(true), RESORT.setSeed("ws6-forge-shot"), 1)');
+  await sleep(4200);
   await evalJs(`(async()=>{
     for (let i = 0; i < 50 && !document.getElementById('forge').classList.contains('show'); i++)
       await new Promise(r => setTimeout(r, 100));
