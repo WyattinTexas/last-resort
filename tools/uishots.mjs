@@ -197,6 +197,8 @@ const main = async () => {
     RESORT.pause(true);
     RESORT.setSeed('feel-windup');
     RESORT.pickBody('wrestler');
+    RESORT.buySpell('fireball');   // WS2: unowned slots don't render — the stun
+                                   // frame needs a bar on screen to gray out
     RESORT.skipTide();
     RESORT.runTicks(2);
     const S = RESORT.state;
