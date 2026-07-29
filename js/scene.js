@@ -891,6 +891,180 @@ export function createScene(canvas, COVE, MARKET) {
       return g;
     }
 
+    if (bodyId === 'slinger') {
+      // THE COCONUT SLINGER: sun-faded shirt, frond visor, a satchel of ammo,
+      // and the sling — jab persona, so the release reads as a flat throw.
+      const legs = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.23, 0.62, 3, 8), lam(0x7A5A3A)));
+      legs.position.y = 0.52;
+      const torso = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.30, 0.60, 3, 8), lam(0xE0854A)));
+      torso.position.y = 1.24;
+      g.userData.torso = torso;
+      const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.30, 9, 7), lam(skin)));
+      head.position.y = 1.88;
+      const visor = add(new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 0.10, 9), lam(PAL.jungleLit)));
+      visor.position.set(0, 2.02, 0.08); visor.rotation.x = 0.18;
+      const strap = add(new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.74, 0.09), lam(0x4A3320)));
+      strap.position.set(0.1, 1.32, 0.30); strap.rotation.z = 0.6;
+      const ammoA = add(new THREE.Mesh(new THREE.SphereGeometry(0.13, 7, 6), lam(PAL.trunk)));
+      ammoA.position.set(-0.28, 0.98, 0.26);
+      const ammoB = add(new THREE.Mesh(new THREE.SphereGeometry(0.12, 7, 6), lam(0x6B4326)));
+      ammoB.position.set(-0.12, 0.9, 0.33);
+      const armR = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.10, 0.5, 2, 6), lam(skin)));
+      armR.position.set(-0.46, 1.28, 0.05); armR.rotation.z = 0.3;
+      const armL = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.10, 0.5, 2, 6), lam(skin)));
+      armL.position.set(0.46, 1.28, 0.05); armL.rotation.z = -0.3;
+      g.userData.armL = armL;
+      // the sling: short Y-stick, cord loop, a coconut seated in the pouch.
+      // children[0] is the launch flash — the RANGED_FLASH frame code reads it.
+      const sling = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 1.0, 5), lam(PAL.trunk)));
+      sling.position.set(0.6, 1.3, 0.3); sling.rotation.set(0.4, 0, -0.25);
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5),
+        new THREE.MeshBasicMaterial({ color: 0xFFF6D2, fog: false }));
+      flash.position.y = 0.55; sling.add(flash);
+      const cord = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.035, 5, 10), lam(PAL.rope));
+      cord.position.y = 0.5; cord.rotation.x = Math.PI / 2; sling.add(cord);
+      const loaded = new THREE.Mesh(new THREE.SphereGeometry(0.11, 7, 6), lam(0x6B4326));
+      loaded.position.y = 0.5; sling.add(loaded);
+      g.userData.club = sling;
+      return g;
+    }
+
+    if (bodyId === 'oldsalt') {
+      // THE OLD SALT: barrel slicker, sou'wester, white beard, rope coil on
+      // the hip — and an oar whose slow cock the club persona makes heavy.
+      const legs = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.5, 3, 8), lam(0x14324A)));
+      legs.position.y = 0.5;
+      const torso = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.46, 0.62, 3, 8), lam(0x1D4E6E)));
+      torso.position.y = 1.22;
+      g.userData.torso = torso;
+      const coil = add(new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.07, 5, 10), lam(PAL.rope)));
+      coil.position.set(-0.42, 1.0, 0.2); coil.rotation.y = 0.5;
+      const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.32, 9, 7), lam(skin)));
+      head.position.y = 1.9;
+      const beard = add(new THREE.Mesh(new THREE.SphereGeometry(0.2, 7, 6), lam(0xE8E8E0)));
+      beard.position.set(0, 1.74, 0.2);
+      const brim = add(new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.54, 0.08, 10), lam(0xE8C34A)));
+      brim.position.y = 2.1; brim.rotation.x = -0.12;   // sou'wester sits long at the back
+      const crown = add(new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.34, 0.3, 9), lam(0xE8C34A)));
+      crown.position.y = 2.26;
+      const armR = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.52, 2, 6), lam(0x1D4E6E)));
+      armR.position.set(-0.56, 1.26, 0.05); armR.rotation.z = 0.3;
+      const armL = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.52, 2, 6), lam(0x1D4E6E)));
+      armL.position.set(0.56, 1.26, 0.05); armL.rotation.z = -0.3;
+      g.userData.armL = armL;
+      const oar = add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.9, 5), lam(PAL.trunk)));
+      oar.position.set(0.68, 1.15, 0.32); oar.rotation.set(0.45, 0, -0.3);
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.62, 0.07), lam(PAL.post));
+      blade.position.y = 1.15; oar.add(blade);
+      g.userData.club = oar;
+      return g;
+    }
+
+    if (bodyId === 'tourist') {
+      // THE SUNBURNT TOURIST: the loudest shirt on the island, day one of the
+      // trip of a lifetime. The BRIGHTEST silhouette on the rack, on purpose.
+      const burnt = 0xE89078;
+      const legs = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.27, 0.5, 3, 8), lam(0xF7FBFF)));
+      legs.position.y = 0.5;
+      const torso = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 0.6, 3, 8), lam(PAL.hibiscus)));
+      torso.position.y = 1.24;
+      g.userData.torso = torso;
+      for (const [px, py, pz] of [[-0.2, 1.38, 0.3], [0.18, 1.14, 0.33], [0.28, 1.44, 0.24]]) {
+        const petal = add(new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.05), lam(0xF7FBFF)));
+        petal.position.set(px, py, pz);   // the floral print, three white blooms
+      }
+      const camBox = add(new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.12), lam(0x203040)));
+      camBox.position.set(0, 1.0, 0.4);
+      const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.31, 9, 7), lam(burnt)));
+      head.position.y = 1.9;
+      const zinc = add(new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.16, 0.1), lam(0xF7FBFF)));
+      zinc.position.set(0, 1.9, 0.27); zinc.rotation.x = 0.35;   // the nose stripe
+      const sunhat = add(new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.7, 0.07, 11), lam(PAL.sandLit)));
+      sunhat.position.y = 2.12;
+      const dome = add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.26, 9), lam(PAL.sandLit)));
+      dome.position.y = 2.26;
+      const armR = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.52, 2, 6), lam(burnt)));
+      armR.position.set(-0.52, 1.26, 0.05); armR.rotation.z = 0.3;
+      const armL = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.52, 2, 6), lam(burnt)));
+      armL.position.set(0.52, 1.26, 0.05); armL.rotation.z = -0.3;
+      g.userData.armL = armL;
+      // a closed beach umbrella, swung like it was never meant to be
+      const brolly = add(new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 1.5, 6), lam(PAL.hero)));
+      brolly.position.set(0.66, 1.05, 0.35); brolly.rotation.set(0.5, 0, -0.35);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.25, 6), lam(PAL.gold));
+      tip.position.y = 0.85; brolly.add(tip);
+      g.userData.club = brolly;
+      return g;
+    }
+
+    if (bodyId === 'bandleader') {
+      // THE BANDLEADER: dinner jacket, captain's cap, the pan still slung —
+      // flick persona, the mallet keeps time.
+      const legs = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.56, 3, 8), lam(0x202838)));
+      legs.position.y = 0.52;
+      const torso = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.6, 3, 8), lam(0xF7FBFF)));
+      torso.position.y = 1.24;
+      g.userData.torso = torso;
+      const bow = add(new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.09), lam(0x14161E)));
+      bow.position.set(0, 1.58, 0.32);
+      const pan = add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.26, 0.09, 12), lam(0xB8C4CC)));
+      pan.position.set(-0.4, 0.98, 0.24); pan.rotation.z = 0.3;
+      const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.3, 9, 7), lam(skin)));
+      head.position.y = 1.88;
+      const capBrim = add(new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.4, 0.07, 10), lam(0xF7FBFF)));
+      capBrim.position.y = 2.06;
+      const capTop = add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.18, 10), lam(0x14161E)));
+      capTop.position.y = 2.18;
+      const armR = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.5, 2, 6), lam(0xF7FBFF)));
+      armR.position.set(-0.48, 1.28, 0.05); armR.rotation.z = 0.3;
+      const armL = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.5, 2, 6), lam(0xF7FBFF)));
+      armL.position.set(0.48, 1.28, 0.05); armL.rotation.z = -0.3;
+      g.userData.armL = armL;
+      const mallet = add(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.9, 5), lam(PAL.trunk)));
+      mallet.position.set(0.6, 1.35, 0.3); mallet.rotation.set(0.4, 0, -0.3);
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5), lam(PAL.hibiscus));
+      ball.position.y = 0.5; mallet.add(ball);
+      g.userData.club = mallet;
+      return g;
+    }
+
+    if (bodyId === 'purser') {
+      // THE SHIP'S PURSER: green waistcoat, gold buttons, the ledger balanced
+      // under one arm — and the coin bag swings like a club, because it is one.
+      const green = 0x1E6B4A;
+      const legs = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.56, 3, 8), lam(0x2A3040)));
+      legs.position.y = 0.52;
+      const torso = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 0.6, 3, 8), lam(green)));
+      torso.position.y = 1.24;
+      g.userData.torso = torso;
+      for (let i = 0; i < 3; i++) {
+        const btn = add(new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.05), lam(PAL.gold)));
+        btn.position.set(0, 1.06 + i * 0.24, 0.36);
+      }
+      const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.3, 9, 7), lam(skin)));
+      head.position.y = 1.88;
+      const capBrim = add(new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.07, 10), lam(green)));
+      capBrim.position.y = 2.06;
+      const capTop = add(new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.16, 10), lam(green)));
+      capTop.position.y = 2.16;
+      const ledger = add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 0.09), lam(0x7A2A22)));
+      ledger.position.set(-0.5, 1.12, 0.16); ledger.rotation.z = 0.25;
+      const armR = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.5, 2, 6), lam(green)));
+      armR.position.set(-0.5, 1.28, 0.05); armR.rotation.z = 0.35;
+      const armL = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.5, 2, 6), lam(green)));
+      armL.position.set(0.5, 1.28, 0.05); armL.rotation.z = -0.3;
+      g.userData.armL = armL;
+      // strap in hand, bag at the business end
+      const strap = add(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.6, 5), lam(0x4A3320)));
+      strap.position.set(0.62, 1.25, 0.3); strap.rotation.set(0.45, 0, -0.3);
+      const bag = new THREE.Mesh(new THREE.SphereGeometry(0.17, 7, 6), lam(0x8A6A2A));
+      bag.position.y = 0.42; bag.scale.y = 1.2; strap.add(bag);
+      const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.07, 6), lam(PAL.gold));
+      tie.position.y = 0.24; strap.add(tie);
+      g.userData.club = strap;
+      return g;
+    }
+
     // THE WRESTLER (default/castaway): bright trunks, championship belt, and
     // the life ring that makes the silhouette. Went overboard mid-promo.
     const legs = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.55, 3, 8), lam(0x2A3F6B)));
@@ -1285,6 +1459,11 @@ export function createScene(canvas, COVE, MARKET) {
   const basicGlow = C(0xFFE9A8);   // the wand missile's warm tracer
   const sparkCol = new THREE.Color();
   let curBodyId = null;
+  // WS6: per-body flavor is a TABLE ROW, not a new system (the WS4 law). Three
+  // shipped swing programs cover eight bodies; anything unlisted takes 'club'.
+  const SWING_STYLE = { diver: 'jab', slinger: 'jab', magician: 'flick', bandleader: 'flick' };
+  // ranged bodies flash their club tip (children[0]) on every missile launch
+  const RANGED_FLASH = new Set(['magician', 'slinger']);
   let tSecNow = 0;                 // draw()'s tSec, visible to the WS4 curve helpers
   const huskCol = C(0xCFC3A6).multiplyScalar(0.88);   // corpseCol darkened ~12%
   let husksDrawn = 0;              // battery probe: husk instances this frame
@@ -1535,8 +1714,9 @@ export function createScene(canvas, COVE, MARKET) {
       const P = poseOf(h.atkAnim, 4, hWind, alpha);
       const wind = Math.max(0, -P), snap = Math.max(0, P);
       const ud = heroBody.userData;
-      if (curBodyId === 'diver') {
-        // the spear is a straight-line jab: pull back, thrust through
+      const style = SWING_STYLE[curBodyId] || 'club';
+      if (style === 'jab') {
+        // spear or sling: a straight-line jab — pull back, thrust through
         if (ud.club) {
           const bp = ud.club.userData.basePos || (ud.club.userData.basePos = ud.club.position.clone());
           ud.club.position.z = bp.z - wind * 0.30 + snap * 0.85;
@@ -1544,20 +1724,24 @@ export function createScene(canvas, COVE, MARKET) {
         }
         if (ud.armL) ud.armL.rotation.x = wind * 0.5 - snap * 0.9;
         heroBody.rotation.y = P * -0.10;
-      } else if (curBodyId === 'magician') {
-        // the wand is a flick; the launch flash rides wandFlashT below
+      } else if (style === 'flick') {
+        // wand or mallet: a wrist flick; the launch flash rides wandFlashT
         if (ud.club) ud.club.rotation.x = wind * 0.55 - snap * 0.75;
         if (ud.armL) ud.armL.rotation.x = wind * 0.4 - snap * 0.8;
         heroBody.rotation.y = P * -0.08;
       } else {
-        // the wrestler's club takes the big arc, body twisting into it
-        if (ud.club) ud.club.rotation.x = wind * 1.25 - snap * 0.9;
-        if (ud.armL) ud.armL.rotation.x = wind * 0.7 - snap * 1.05;
+        // the club takes the big arc, body twisting into it. The windup cocks
+        // heavier the slower the swing truly is (atkTicks), floored at the
+        // shipped wrestler feel so the classics never read differently.
+        const heft = Math.max(1, Math.min(1.45, h.atkTicks / 12));
+        if (ud.club) ud.club.rotation.x = wind * 1.25 * heft - snap * 0.9;
+        if (ud.armL) ud.armL.rotation.x = wind * 0.7 * heft - snap * 1.05;
         heroBody.rotation.y = P * -0.24;
       }
-      // wand-tip flash on missile launch (scaled back down over ~180ms)
+      // club-tip flash on missile launch (scaled back down over ~180ms) —
+      // every ranged body's builder parks the flash mesh at children[0]
       wandFlashT += dt;
-      if (curBodyId === 'magician' && ud.club && ud.club.children[0]) {
+      if (RANGED_FLASH.has(curBodyId) && ud.club && ud.club.children[0]) {
         const fk = Math.max(0, 1 - wandFlashT / 0.18);
         ud.club.children[0].scale.setScalar(1 + fk * 2.4);
       }

@@ -299,6 +299,8 @@ export function createSim(seedInput) {
     shield: 0, shieldTicks: 0,
     buffs: [],                   // [{ id, ticks, mods }]
     swingN: 0,                   // suplex counter
+    plantTicks: 0,               // DROP ANCHOR stance counter (WS6 Old Salt)
+    anchorSwings: 0,             // DROP ANCHOR ammo: swings the set anchor absorbs
     // WS3 verb state + recompute-derived riders (all zero for a classic build
     // — every new rng draw in the engine gates on one of these, which is how
     // the old runs stay byte-identical)
@@ -313,6 +315,7 @@ export function createSim(seedInput) {
     pinchPct: 0, pinchDmg: 0, pinchSec: 0,
     burnPerSec: 0, burnR: 0,
     auraDmgPct: 0,
+    rangedDmgPct: 0,
   };
 
   return makeApi(S);
@@ -444,6 +447,26 @@ function tickOnce(S) {
   stepProjectiles(S);
   resolvePendings(S);
   resolveBodies(S);
+
+  // DROP ANCHOR (WS6 Old Salt): the stance is measured AFTER relaxation, when
+  // the hero's position is FINAL for the tick. px/pz are the LAW-4 start-of-
+  // tick stash, so any movement this tick — orders, chasing, a port — breaks
+  // the stance. A stunned hero is stationary and counts as planted. The anchor
+  // SETS once per plant (10 swings of ammo at the 1.5s mark) — a statue spends
+  // it and gets nothing more until he steps and sets it again; the measured
+  // alternative (a permanent −6) was a slotless BARNACLE and stood through
+  // tide ten, which is exactly what §3.3's no-rack-clone law forbids.
+  if (S.bodyId === 'oldsalt') {
+    const h = S.hero;
+    const dx = h.x - h.px, dz = h.z - h.pz;
+    if (dx * dx + dz * dz < 1e-6 && !h.dead) {
+      h.plantTicks++;
+      if (h.plantTicks === 30) h.anchorSwings = 10;
+    } else {
+      h.plantTicks = 0;
+      h.anchorSwings = 0;
+    }
+  }
 
   // --- regen (ALOE SALVE's heal-over-time rides the same accumulator) ---
   if (!S.hero.dead && S.hero.hp < S.hero.maxHp) {
@@ -582,6 +605,12 @@ function clearTide(S) {
   S.ledger.clears += gold;
   S.pearls += pearls;
   S.cleared++;
+  // THE TAN FADES (WS6): a decaying body re-derives its statline at the clear
+  // (classic bodies never take the extra recompute). The recompute clamps hp
+  // down when the shrunken max is below current — the bar visibly shaves at
+  // the clear, which IS the drama; the innate desc explains it.
+  const decBody = BODIES.find(b => b.id === S.bodyId);
+  if (decBody && decBody.innate && decBody.innate.decay) recomputeStats(S);
   if (S.tide > S.bestTide) S.bestTide = S.tide;
   // the standings entry: when, how bloody, how rich. Net worth counts the gear
   // at purchase price — spending gold must never LOWER a standings line.
@@ -629,6 +658,8 @@ function heroDown(S) {
   S.hero.goldShieldTicks = 0;
   S.hero.goldShieldRate = 0;
   S.hero.slamWardTicks = 0;
+  S.hero.plantTicks = 0;         // a washout is not a stance
+  S.hero.anchorSwings = 0;
   recomputeStats(S);
   S.deaths++;
   S.tide = Math.max(0, S.tide - 1);   // this tide didn't count; it rolls in again
@@ -802,7 +833,11 @@ function debugSpawn(S, n, skinId) {
 }
 
 function onCreepKilled(S, c) {
-  const bounty = Math.max(1, Math.round((TUNE.bountyBase + S.tide) * c.bountyMult));
+  let bounty = Math.max(1, Math.round((TUNE.bountyBase + S.tide) * c.bountyMult));
+  // SERVICE CHARGE (WS6 Purser): flat +2 AFTER the mult — minis pay it too,
+  // bosses pay it once. "Every bounty" is the honest tooltip. The ledger law
+  // holds by construction: the raised bounty rides ledger.bounty below.
+  if (S.bodyId === 'purser') bounty += 2;
   S.gold += bounty;
   S.ledger.bounty += bounty;
   S.kills++;
@@ -812,6 +847,15 @@ function onCreepKilled(S, c) {
   if (c.big) ev(S, 'boss_down', { name: c.bossName });
   // RIPTIDE FEET (Pearl Diver innate): kills grant a burst of speed.
   if (S.bodyId === 'diver') addBuff(S, { id: 'riptide', ticks: secs(1.5), mods: { msMult: 1.45 } });
+  // KEEP THE SET MOVING (WS6 Bandleader): every kill shaves 0.5s (10 ticks)
+  // off running ACTIVE cooldowns. The kind guard is load-bearing: SECOND
+  // SUNRISE's sleep lives in S.cds and kills must never accelerate it —
+  // ENCORE's cdMult already skips it, and this keeps that precedent.
+  if (S.bodyId === 'bandleader') {
+    for (const id in S.cds) {
+      if (S.cds[id] > 0 && SPELL[id].kind !== 'passive') S.cds[id] = Math.max(0, S.cds[id] - 4);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1039,6 +1083,16 @@ function recomputeStats(S) {
   let asPct = 0, msPct = 0, crit = 0, lifesteal = 0, thorns = 0;
   let dmgMult = 1, asMult = 1, msMult = 1;
 
+  // THE TAN FADES (WS6, data-driven): decay is a BASE subtraction and the
+  // floors clamp the DECAY, not the total — fruit and items still add above
+  // the floor, and multipliers apply after, so tooltips stay flat-number
+  // honest. S.cleared is monotonic, so a washout retry faces identical stats.
+  const dec = body && body.innate && body.innate.decay;
+  if (dec) {
+    hpFlat -= Math.min(dec.hpPerClear * S.cleared, base.maxHp - dec.hpFloor);
+    dmgFlat -= Math.min(dec.dmgPerClear * S.cleared, base.dmg - dec.dmgFloor);
+  }
+
   // fruit (§6 tome economy)
   dmgFlat += FRUIT.mango.per.dmg * S.fruit.mango;
   spFlat += FRUIT.mango.per.sp * S.fruit.mango;
@@ -1052,7 +1106,7 @@ function recomputeStats(S) {
   let flatDR = 0, dodgePct = 0, poisonPerSec = 0, poisonSec = 0, poisonSlowPct = 0;
   let cleavePct = 0, cleaveR = 0, procPct = 0, procDmg = 0, procR = 0;
   let pinchPct = 0, pinchDmg = 0, pinchSec = 0, burnPerSec = 0, burnR = 0;
-  let dmgPct = 0, cdrPct = 0;
+  let dmgPct = 0, cdrPct = 0, rangedDmgPct = 0;
 
   // items (passives; potions act through buffs). WS5 trader passives ride the
   // rider lanes — only the four lanes a shipped row actually uses are read.
@@ -1101,6 +1155,7 @@ function recomputeStats(S) {
     if (fx.burnPerSec) { burnPerSec += rv(fx.burnPerSec, r); burnR = Math.max(burnR, rv(fx.burnR, r)); }
     if (fx.dmgPct) dmgPct += rv(fx.dmgPct, r);
     if (fx.cdrPct) cdrPct += rv(fx.cdrPct, r);
+    if (fx.rangedDmgPct) rangedDmgPct += rv(fx.rangedDmgPct, r);
   }
 
   // timed buffs (avatar, riptide feet, juices)
@@ -1138,6 +1193,7 @@ function recomputeStats(S) {
   h.pinchPct = pinchPct; h.pinchDmg = pinchDmg; h.pinchSec = pinchSec;
   h.burnPerSec = burnPerSec; h.burnR = burnR;
   h.auraDmgPct = dmgPct;
+  h.rangedDmgPct = rangedDmgPct;
   // ENCORE innate × TRADE WINDS aura — the HUD and the charge both read this live
   h.cdMult = ((S.bodyId === 'magician') ? 0.85 : 1) * (1 - cdrPct / 100);
 }
@@ -1644,6 +1700,13 @@ function heroBasicHit(S, c) {
   let crit = false;
   if (S.bodyId === 'wrestler' && h.swingN % 6 === 0) { dmg *= 2; crit = true; }   // SUPLEX TIMING
   if (h.crit > 0 && S.rng() < h.crit / 100) { dmg *= 2; crit = true; }
+  // LONG TOSS (WS6 Coconut Slinger): distance measured at TRIGGER — the same
+  // moment the sim already deals or launches damage. Draw-free; the dodge and
+  // crit draw order above is untouched.
+  if (S.bodyId === 'slinger') {
+    const dd = Math.hypot(c.x - h.x, c.z - h.z);
+    if (dd >= 4.5) dmg *= 1.3;
+  }
   dmg = Math.round(dmg);
   // A ranged basic (the wand, range >= 5) lobs a REAL missile now (rev 2 WS1):
   // the swing's damage rides it and lands on CONNECT, a few ticks out. Every
@@ -1651,6 +1714,10 @@ function heroBasicHit(S, c) {
   // then crit — so the RNG stream keeps its exact shape. Lifesteal rides the
   // connect too (stepProjectiles), same magnitude, just later.
   if (h.range >= 5) {
+    // SPYGLASS (WS6): +% on ranged basics ONLY — applied here at trigger so
+    // the boosted number rides the missile and lands on connect, exactly like
+    // crit does. The melee path below never reads the accumulator.
+    if (h.rangedDmgPct > 0) dmg = Math.round(dmg * (1 + h.rangedDmgPct / 100));
     S.projs.push({
       id: S.nextId++,
       kind: 'basic',
@@ -1745,7 +1812,16 @@ function hurtHero(S, amount, attacker) {
     ev(S, 'dodge', { x: h.x, z: h.z });
     return;
   }
-  if (attacker && h.flatDR > 0) amount = Math.max(1, amount - h.flatDR);
+  // DROP ANCHOR (WS6) folds into this flat-DR step ONLY: dodge stays first
+  // (a dodged swing spends no ammo), slams (attacker null) still bypass,
+  // floor 1 still floors, and the anchor SUMS with BARNACLE HIDE / KRAKEN
+  // SCALE. Each reduced swing spends one of the set anchor's 10.
+  const anchored = S.bodyId === 'oldsalt' && h.anchorSwings > 0;
+  const dr = h.flatDR + (anchored ? 6 : 0);
+  if (attacker && dr > 0) {
+    amount = Math.max(1, amount - dr);
+    if (anchored) h.anchorSwings--;
+  }
   if (h.goldShieldTicks > 0 && amount > 0 && S.gold > 0) {
     // COWRIE WARD: 1g soaks `rate` damage. Burned gold rides ledger.spent, so
     // the every-tick ledger law holds by construction — the battery proves it.

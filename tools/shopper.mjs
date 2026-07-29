@@ -19,7 +19,8 @@ import { ITEM } from '../js/data.js';
 import { makeShopper } from './bot.mjs';
 
 const SEEDS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-const BODIES = ['wrestler', 'diver', 'magician'];
+const BODIES = ['wrestler', 'diver', 'magician',
+  'slinger', 'oldsalt', 'tourist', 'bandleader', 'purser'];   // WS6: the full roster
 const MAXT = 20 * 60 * 40;
 
 // The archetype brain: the classic shopper's play loop with a parameterised
@@ -393,6 +394,123 @@ for (const arch of TRADER_ARCHETYPES) {
           + (brk.length ? ' (break after t' + brk[0] + '-t' + brk[brk.length - 1] + ')' : '')
           + (ITEM[id].kind === 'active' ? '  uses ' + uses : ''));
       }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WS6 PURSER ECONOMY (plan 0078 §7.3) — SERVICE CHARGE measured, never guessed:
+// the earned-by-break table re-printed on the purser chassis (expect the flat
+// +2 to compound to roughly +2 × kills over the run), then the WS5
+// TRADER-SAVER config on the purser — do the same trader buys land earlier
+// than the wrestler baseline printed above?
+// ---------------------------------------------------------------------------
+console.log('\nWS6 PURSER ECONOMY — earned by the break (vs the classic table above)');
+{
+  const table = {};
+  const unspent = [];
+  const killsAt = [];
+  for (const sd of SEEDS) {
+    const sim = createSim(makeSeed(sd));
+    sim.pickBody('purser');
+    sim.buySpell('fireball');
+    const bot = makeShopper(sim, { kite: true });
+    const S = sim.S;
+    let last = 0, t = 0;
+    while (S.phase !== 'VICTORY' && t < MAXT) {
+      bot.step(); sim.tick(); t++;
+      if (S.cleared !== last) {
+        last = S.cleared;
+        (table[last] = table[last] || []).push(100 + S.ledger.bounty + S.ledger.clears);
+      }
+    }
+    unspent.push(S.gold);
+    killsAt.push(S.kills);
+  }
+  const hdr = [], row = [];
+  for (let td = 1; td <= 10; td++) {
+    const a = table[td] || [];
+    hdr.push(String(td).padStart(6));
+    row.push(String(Math.round(a.reduce((s, x) => s + x, 0) / (a.length || 1))).padStart(6));
+  }
+  console.log('after tide ' + hdr.join(''));
+  console.log('earned ~   ' + row.join(''));
+  console.log('unspent at victory ~ '
+    + Math.round(unspent.reduce((s, x) => s + x, 0) / unspent.length) + 'g · kills ~ '
+    + Math.round(killsAt.reduce((s, x) => s + x, 0) / killsAt.length)
+    + ' (the innate is worth ~2 × kills)');
+}
+
+console.log('\nWS6 PURSER TRADER-SAVER (the wrestler TRADER-SAVER cfg on the purser chassis)');
+{
+  const arch = { name: 'PURSER-SAVER', body: 'purser', cfg: TRADER_ARCHETYPES[0].cfg };
+  for (const kite of [false, true]) {
+    const rows = SEEDS.map(sd => runTrader(arch, sd, kite));
+    const label = (kite ? 'KITE ' : 'STAND') + ' ' + (arch.name + ' ' + arch.body).padEnd(22);
+    const per = rows.map(r => (r.victory ? 'V' : String(r.cleared))).join(' ');
+    const avg = (rows.reduce((s, r) => s + r.cleared, 0) / rows.length).toFixed(1);
+    const wins = rows.filter(r => r.victory).length;
+    console.log(label, per.padEnd(24), 'avg', avg, kite ? ('wins ' + wins + '/8') : '(death tide = cleared+1)');
+    if (kite) {
+      for (const { id } of arch.cfg.trader) {
+        const buys = rows.filter(r => r.landed[id] !== undefined);
+        const brk = buys.map(r => r.landed[id]).sort((a, b) => a - b);
+        const uses = rows.reduce((s, r) => s + (r.used[id] || 0), 0);
+        console.log('      ' + id.padEnd(11) + ' landed ' + buys.length + '/8'
+          + (brk.length ? ' (break after t' + brk[0] + '-t' + brk[brk.length - 1] + ')' : '')
+          + (ITEM[id].kind === 'active' ? '  uses ' + uses : ''));
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WS6 SPYGLASS MARKSMAN (plan 0078 §7.3) — the parked WS3 debt, measured on
+// its second customer: the classic shopper plan on the slinger, with and
+// without SPYGLASS r1 slotted E from tide 5 (displacing BULWARK — a passive
+// slot COSTS an active, that's the breadth pressure). LOGGED DEVIATION: the
+// classic plan's pearl queue can never SAVE the 5 pearls (the greedy bot eats
+// every income — the same breadth pressure WS3 measured), so the spyglass arm
+// GRANTS the 5 at the t5 break; the probe measures the LANE, not the purse.
+// Expect a visible but not window-breaking delta; if invisible, raise [12,4].
+// ---------------------------------------------------------------------------
+console.log('\nWS6 SPYGLASS MARKSMAN (slinger, classic plan ± spyglass r1 in E from t5 — 5 pearls granted)');
+{
+  function runMarksman(seed, withGlass, kite) {
+    const sim = createSim(makeSeed(seed));
+    sim.pickBody('slinger');
+    sim.buySpell('fireball');
+    const bot = makeShopper(sim, { kite });
+    const S = sim.S;
+    let t = 0, granted = false, landed = null;
+    while (S.phase !== 'VICTORY' && t < MAXT) {
+      if (withGlass && S.phase === 'BREAK' && S.tide >= 4) {   // tideNow = 5: the unlock break
+        if (!S.spells.spyglass) {
+          if (!granted) { sim.givePearls(5); granted = true; }
+          if (sim.buySpell('spyglass').ok) landed = S.tide;
+        }
+        if (S.spells.spyglass && S.slots.E !== 'spyglass') sim.equip('spyglass', 'E');
+      }
+      bot.step(); sim.tick(); t++;
+      if (!kite && S.deaths >= 1) break;
+    }
+    return { cleared: S.cleared, victory: S.phase === 'VICTORY', ticks: S.tick, landed };
+  }
+  const mmss = t => Math.floor(t / 20 / 60) + ':' + String(Math.floor(t / 20) % 60).padStart(2, '0');
+  for (const withGlass of [false, true]) {
+    for (const kite of [false, true]) {
+      const rows = SEEDS.map(sd => runMarksman(sd, withGlass, kite));
+      const label = (kite ? 'KITE ' : 'STAND') + ' ' + (withGlass ? 'SPYGLASS-E slinger' : 'CLASSIC-E  slinger').padEnd(22);
+      const per = rows.map(r => (r.victory ? 'V' : String(r.cleared))).join(' ');
+      const avg = (rows.reduce((s, r) => s + r.cleared, 0) / rows.length).toFixed(1);
+      const wins = rows.filter(r => r.victory).length;
+      const time = kite
+        ? ' avg time ' + mmss(rows.reduce((s, r) => s + r.ticks, 0) / rows.length)
+        : '';
+      const landedN = rows.filter(r => r.landed !== null).length;
+      console.log(label, per.padEnd(24), 'avg', avg,
+        (kite ? ('wins ' + wins + '/8' + time) : '(death tide = cleared+1)')
+        + (withGlass && kite ? '  landed ' + landedN + '/8 (break after t4)' : ''));
     }
   }
 }

@@ -7,7 +7,7 @@
 // What it proves (link 2 battery):
 //   1. The page boots in a real browser with real WebGL.
 //   2. The FORGE gates the run; bodies apply real statlines.
-//   3. The racks sell all 38 spells through ONE engine: buys, locks, slots,
+//   3. The racks sell all 39 spells through ONE engine: buys, locks, slots,
 //      cooldowns, projectiles, shields — all measured in SIM TICKS.
 //   4. Fruit, items, XP->ranks and the 100g Tide Tablet respec all hold the
 //      ledger invariant: gold === start + bounty + clears - spent, every tick.
@@ -839,12 +839,13 @@ const main = async () => {
   ok(deadBreakUi.attr === 'BREAK' && deadBreakUi.dead && deadBreakUi.purse === 'none' && deadBreakUi.hero === 'none',
     'a DEAD break keeps the shopping chrome dark — the market is for the living', JSON.stringify(deadBreakUi));
 
-  // --- 8.9 WS3 ABILITIES: 38 rows, the new verbs, the rider stack --------
+  // --- 8.9 WS3 ABILITIES: 39 rows (38 + WS6's SPYGLASS), the new verbs, the
+  // rider stack ----------------------------------------------------------
   // Idiom: seed → pickBody → givePearls → buy/equip → spawn/poke → tick →
   // assert EXACT numbers. Two page-side lab helpers keep every check clean:
   // __ws3jump poses a run at any tide (the tide-jump recipe), __ws3arm
   // freezes the spawner + the clear check so the lab owns the sand.
-  console.log('\nWS3 ABILITIES — thirty-eight rows, one engine, the new verbs');
+  console.log('\nWS3 ABILITIES — thirty-nine rows, one engine, the new verbs');
   await evalJs('RESORT.pause(true)');
   await evalJs(`window.__ws3jump = (seed, body, tideN) => {
     RESORT.setSeed(seed);
@@ -885,9 +886,9 @@ const main = async () => {
     }
     return { n: SP.length, counts, unresolved: unresolved.slice(0, 4) };
   })()`);
-  ok(pool.n === 38, 'the pool holds THIRTY-EIGHT rows', `n=${pool.n}`);
-  ok(pool.counts.STRIKE === 10 && pool.counts.GUARD === 11 && pool.counts.CURRENT === 11 && pool.counts.DEEP === 6,
-    'racks balance 10 / 11 / 11 / 6 — browsable, no fifth rack', JSON.stringify(pool.counts));
+  ok(pool.n === 39, 'the pool holds THIRTY-NINE rows (38 + SPYGLASS, the parked WS3 debt)', `n=${pool.n}`);
+  ok(pool.counts.STRIKE === 10 && pool.counts.GUARD === 11 && pool.counts.CURRENT === 12 && pool.counts.DEEP === 6,
+    'racks balance 10 / 11 / 12 / 6 — browsable, no fifth rack', JSON.stringify(pool.counts));
   ok(pool.unresolved.length === 0, 'every desc resolves every %N at every rank and spellpower (tooltip law, automated)',
     pool.unresolved.join(',') || 'clean');
 
@@ -2476,6 +2477,381 @@ const main = async () => {
   ok(mktFrame.drew >= 2 && mktFrame.calls > 0 && mktFrame.calls <= 220,
     'the market-break frame carries the PIRATE TRADER inside the 220 budget — measured, logged',
     `calls=${mktFrame.calls}`);
+
+  // --- 8.12 WS6 HEROES: eight bodies, five innates, one law each ---------
+  // Idiom: every innate check states its exact number and measures PAIRS
+  // (never predicts float sums — WS5 gotcha 2). Labs ride __ws3jump/__ws3arm
+  // on tides 1/2/7 (never 5/6/9/10), re-poke stats after every buy/equip
+  // (recompute resets pokes — WS3 gotcha 2), and read S.events inside the
+  // SAME eval that runs the ticks (the rAF drain can't interleave an eval).
+  console.log('\nWS6 HEROES — the roster grows 3 -> 8, every innate measured');
+  await evalJs('RESORT.pause(true)');
+
+  // roster integrity: 8 rows, unique ids, full schema, the forge shows them
+  const roster = await evalJs(`(()=>{
+    const B = RESORT.content.BODIES;
+    const ids = B.map(b => b.id);
+    const baseKeys = ['maxHp', 'regen', 'dmg', 'atkS', 'range', 'ms', 'sp', 'radius'];
+    const broken = [];
+    for (const b of B) {
+      if (!b.name || !b.arch || !b.flavor || !b.ico) broken.push(b.id + ':meta');
+      if (!b.innate || !b.innate.id || !b.innate.name || !b.innate.desc) broken.push(b.id + ':innate');
+      for (const k of baseKeys) if (typeof (b.base || {})[k] !== 'number') broken.push(b.id + ':' + k);
+    }
+    const t = B.find(b => b.id === 'tourist');
+    const dec = t && t.innate.decay;
+    const cards = document.querySelectorAll('#forge-cards .bodycard');
+    const last = cards[cards.length - 1];
+    return { n: B.length, unique: new Set(ids).size, broken: broken.slice(0, 5),
+      decay: dec ? [dec.hpPerClear, dec.dmgPerClear, dec.hpFloor, dec.dmgFloor] : null,
+      cards: cards.length,
+      lastName: last ? last.querySelector('.bname').textContent : '',
+      wantLast: RESORT.TXT(B[B.length - 1].name),
+      innateShown: last ? last.querySelector('.binnate span').textContent.length > 0 : false };
+  })()`);
+  ok(roster.n === 8 && roster.unique === 8, 'the roster holds EIGHT bodies, ids unique', `n=${roster.n}`);
+  ok(roster.broken.length === 0, 'every row carries the full base schema + innate{id,name,desc}',
+    roster.broken.join(',') || 'clean');
+  ok(roster.decay && roster.decay.join(',') === '55,5,900,38',
+    "the tourist's decay is DATA (55/5 per clear, floors 900/38) — a future decaying body is a template clone",
+    String(roster.decay));
+  ok(roster.cards === 8 && roster.lastName === roster.wantLast && roster.innateShown,
+    'the Forge renders all EIGHT cards through the one builder, innate text and all', roster.lastName);
+
+  // statline-exact ×5: pickBody applies data verbatim; atkTicks = round(atkS×20)
+  const statlines = await evalJs(`(()=>{
+    const bad = [];
+    for (const id of ['slinger', 'oldsalt', 'tourist', 'bandleader', 'purser']) {
+      RESORT.setSeed('ws6-stat-' + id);
+      RESORT.pickBody(id);
+      const b = RESORT.content.BODIES.find(x => x.id === id);
+      const h = RESORT.state.hero;
+      if (h.maxHp !== b.base.maxHp || h.regen !== b.base.regen || h.dmg !== b.base.dmg
+        || h.range !== b.base.range || h.ms !== b.base.ms || h.sp !== b.base.sp
+        || h.radius !== b.base.radius) bad.push(id + ':stat');
+      if (h.atkTicks !== Math.round(b.base.atkS * 20)) bad.push(id + ':atkT=' + h.atkTicks);
+    }
+    return bad;
+  })()`);
+  ok(statlines.length === 0, 'all five WS6 statlines land data-exact (atkTicks 16/16/11/12/11)',
+    statlines.join(',') || 'clean');
+
+  // LONG TOSS: the 4.5m line measured as a TWIN PAIR on one frozen creep —
+  // far swing round(55×1.3)=72, near swing 55, and ZERO new draws either way
+  const toss = await evalJs(`(()=>{
+    const S = __ws3jump('ws6-toss', 'slinger', 2);
+    __ws3arm();
+    const h = S.hero;
+    h.regen = 0;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x; c.z = h.z - 6.0; c.px = c.x; c.pz = c.z;
+    c.hp = c.maxHp = 900000; c.dmg = 0; c.ms = 0;
+    S.events.length = 0;
+    const d0 = S._draws;
+    let g = 0, far = null;
+    while (g++ < 80 && !far) { RESORT.runTicks(1); far = S.events.find(e => e.type === 'hit'); }
+    c.x = h.x; c.z = h.z - 3.0; c.px = c.x; c.pz = c.z;
+    S.events.length = 0;
+    g = 0; let near = null;
+    while (g++ < 80 && !near) { RESORT.runTicks(1); near = S.events.find(e => e.type === 'hit'); }
+    return { far: far && far.amount, near: near && near.amount, draws: S._draws - d0 };
+  })()`);
+  ok(toss.far === 72 && toss.near === 55,
+    'LONG TOSS: a 6m lob lands round(55×1.3)=72, a 3m flip lands 55 — the line is 4.5m',
+    `far=${toss.far} near=${toss.near}`);
+  ok(toss.draws === 0, 'the innate is DRAW-FREE: two swings, two connects, zero pulls on the stream',
+    `draws=${toss.draws}`);
+
+  // DROP ANCHOR: a SET anchor holds 10 swings of −6, spends them, and must be
+  // re-set by stepping — the fold lives in the hurtHero flat-DR step ONLY.
+  // (The measured permanent −6 stood through tide ten: a slotless BARNACLE,
+  // which §3.3's no-rack-clone law forbids — the ammo IS the balance.)
+  const anchor = await evalJs(`(()=>{
+    const S = __ws3jump('ws6-anchor', 'oldsalt', 2);
+    RESORT.givePearls(60);
+    __ws3arm();
+    const h = S.hero;
+    h.regen = 0;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x; c.z = h.z - 8;                // out of acquire — the plant is clean
+    c.px = c.x; c.pz = c.z;
+    c.hp = c.maxHp = 900000; c.dmg = 30; c.ms = 0;
+    RESORT.runTicks(40);                     // the stand: the anchor SETS at 1.5s
+    const armed = h.anchorSwings;
+    S.events.length = 0;
+    c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z; c.atkCd = 0;
+    let g = 0;
+    while (g++ < 500 && S.events.filter(e => e.type === 'hero_hit').length < 13) RESORT.runTicks(1);
+    const hits = S.events.filter(e => e.type === 'hero_hit').map(e => e.amount);
+    const spent = h.anchorSwings;
+    RESORT.order(h.x - 3, h.z);              // a step drops the spent anchor
+    RESORT.runTicks(2);
+    const afterMove = [h.plantTicks, h.anchorSwings];
+    let g2 = 0;                              // walk back, stand, re-set the anchor
+    while (g2++ < 300 && h.anchorSwings === 0) RESORT.runTicks(1);
+    const rearmed = h.anchorSwings;
+    c.atkCd = 9999;                          // hold the crab's claws for the slam read
+    const hp0 = h.hp;
+    S.pendings.push({ due: S.tick + 1, x: h.x, z: h.z, r: 3, dmg: 100, side: 'hostile' });
+    RESORT.runTicks(2);
+    const slam = [hp0 - h.hp, h.anchorSwings];   // full damage, no ammo spent
+    RESORT.buySpell('barnaclehide');         // flat-DR SUMS with the anchor
+    h.regen = 0;                             // the buy recomputed — re-poke
+    S.events.length = 0;
+    // the hero re-planted at HIS reach (~2.9m) — outside the frozen crab's
+    // claws; bring the crab back to the hero (creep moves, plant survives)
+    c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z;
+    c.atkCd = 0;
+    let g3 = 0, hitSum = null;
+    while (g3++ < 80 && !hitSum) { RESORT.runTicks(1); hitSum = S.events.find(e => e.type === 'hero_hit'); }
+    S.pendings.push({ due: S.tick + 1, x: h.x, z: h.z, r: 3, dmg: 999999, side: 'hostile' });
+    RESORT.runTicks(3);
+    return { armed, hits: hits.slice(0, 13), spent, afterMove, rearmed,
+      slam, hitSum: hitSum && hitSum.amount,
+      washed: [h.plantTicks, h.anchorSwings], deaths: S.deaths };
+  })()`);
+  ok(anchor.armed === 10, 'DROP ANCHOR: 1.5s planted SETS the anchor — 10 swings of ammo', `ammo=${anchor.armed}`);
+  ok(anchor.hits.length === 13
+    && anchor.hits.slice(0, 10).every(a => a === 24) && anchor.hits.slice(10).every(a => a === 30),
+    'ten swings land 30−6=24, the ELEVENTH lands full — the anchor spends, a statue cannot milk it',
+    anchor.hits.join(','));
+  ok(anchor.spent === 0 && anchor.afterMove.join(',') === '0,0',
+    'spent is spent; a step zeroes plant AND ammo', `after=${anchor.afterMove}`);
+  ok(anchor.rearmed === 10, 'walk back, stand 1.5s: the anchor SETS again — the re-plant dance is the innate');
+  ok(anchor.slam.join(',') === '100,10', 'a slam (attacker-null) bypasses AND spends no ammo', String(anchor.slam));
+  ok(anchor.hitSum === 18, 'BARNACLE r1 + the set anchor SUM in the one flat-DR step: 30−6−6=18', `hit=${anchor.hitSum}`);
+  ok(anchor.washed.join(',') === '0,0' && anchor.deaths === 1,
+    'a washout is not a stance: plant and ammo reset with the tide');
+
+  // THE TAN FADES: decay is a base subtraction, floors clamp the DECAY
+  const fade = await evalJs(`(()=>{
+    RESORT.setSeed('ws6-fade');
+    RESORT.pickBody('tourist');
+    RESORT.givePearls(60); RESORT.giveGold(9000);
+    const S = RESORT.state, h = S.hero;
+    const at0 = [h.maxHp, h.dmg];
+    RESORT.buySpell('crabwalk');             // the recompute lever (dodge: no statline effect)
+    S.cleared = 4; RESORT.equip('crabwalk', 'W');
+    const at4 = [h.maxHp, h.dmg];
+    S.cleared = 99; RESORT.equip('crabwalk', 'Q');
+    const at99 = [h.maxHp, h.dmg];
+    RESORT.buyFruit('coconut', false);       // fruit still adds ABOVE the floor
+    const fruited = h.maxHp;
+    S.pendings.push({ due: S.tick + 1, x: h.x, z: h.z, r: 3, dmg: 999999, side: 'hostile' });
+    let g = 0;
+    while (S.phase !== 'WASHOUT' && g++ < 40) RESORT.runTicks(1);
+    const washed = [h.maxHp, S.cleared];
+    return { at0, at4, at99, fruited, washed, phase: S.phase };
+  })()`);
+  ok(fade.at0.join(',') === '1400,74', 'the tourist starts MIGHTY: 1400 HP / 74 damage', String(fade.at0));
+  ok(fade.at4.join(',') === '1180,54', 'four tides cleared: −55/−5 each = 1180 / 54', String(fade.at4));
+  ok(fade.at99.join(',') === '900,38', 'the floors hold EXACTLY at 900 / 38 — never below', String(fade.at99));
+  ok(fade.fruited === 935, 'a coconut still adds ABOVE the floor (935): decay clamps itself, not the total',
+    `hp=${fade.fruited}`);
+  ok(fade.phase === 'WASHOUT' && fade.washed.join(',') === '935,99',
+    'a washout changes NOTHING: cleared is monotonic, the retry faces identical stats', String(fade.washed));
+  const fadeClear = await evalJs(`(()=>{
+    RESORT.setSeed('ws6-fade2');
+    RESORT.pickBody('tourist');
+    const r = RESORT.runTides(1, 20 * 60 * 5);
+    const h = RESORT.state.hero;
+    return { ok: r.ok, maxHp: h.maxHp, clamped: h.hp <= h.maxHp };
+  })()`);
+  ok(fadeClear.ok && fadeClear.maxHp === 1345 && fadeClear.clamped,
+    'a REAL clear shaves the bar on the clear tick: 1400 → 1345 — the drama is the recompute',
+    `maxHp=${fadeClear.maxHp}`);
+
+  // KEEP THE SET MOVING: kills shave 0.5s (10 ticks) off running ACTIVE cds
+  const tempo = await evalJs(`(()=>{
+    const S = __ws3jump('ws6-tempo', 'bandleader', 2);
+    RESORT.givePearls(60);
+    RESORT.buySpell('fireball');
+    RESORT.buySpell('bulwark');
+    RESORT.buySpell('secondsunrise');
+    RESORT.equip('secondsunrise', 'R');
+    __ws3arm();
+    const h = S.hero;
+    h.regen = 0;
+    const killOne = () => {
+      RESORT.spawn(1, 'crab');
+      const c = S.creeps.find(x => !x.dead);
+      c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z;
+      c.hp = c.maxHp = 1; c.dmg = 0; c.ms = 0;
+      const k0 = S.kills;
+      let g = 0, before = null;
+      while (g++ < 200 && S.kills === k0) {
+        before = { fb: S.cds.fireball || 0, bw: S.cds.bulwark || 0, sr: S.cds.secondsunrise || 0 };
+        RESORT.runTicks(1);
+      }
+      return { before, after: { fb: S.cds.fireball || 0, bw: S.cds.bulwark || 0, sr: S.cds.secondsunrise || 0 } };
+    };
+    RESORT.cast('Q', h.x, h.z - 8);          // fireball downrange: cd 100
+    RESORT.cast('W', h.x, h.z);              // bulwark: cd 280
+    const k1 = killOne();                    // both actives running
+    S.cds.secondsunrise = 500;               // a SLEEPING sunrise (passive kind)
+    const k2 = killOne();
+    S.cds.fireball = 4;                      // the floor: never negative
+    const k3 = killOne();
+    return { k1, k2, k3 };
+  })()`);
+  ok(tempo.k1.after.fb === tempo.k1.before.fb - 1 - 4 && tempo.k1.after.bw === tempo.k1.before.bw - 1 - 4,
+    'a kill shaves BOTH running actives exactly 4 ticks (0.2s) past the natural decrement (sweep timing documented)',
+    `fb ${tempo.k1.before.fb}->${tempo.k1.after.fb} bw ${tempo.k1.before.bw}->${tempo.k1.after.bw}`);
+  ok(tempo.k2.after.sr === tempo.k2.before.sr - 1,
+    "a SLEEPING SECOND SUNRISE is untouched by kills — the kind!=='passive' guard is the one-home law's sibling",
+    `sr ${tempo.k2.before.sr}->${tempo.k2.after.sr}`);
+  ok(tempo.k3.after.fb === 0, 'the shave floors at zero, never negative', `fb=${tempo.k3.after.fb}`);
+
+  // SERVICE CHARGE: flat +2 AFTER the bounty mult, ledger law by construction
+  const charge = await evalJs(`(()=>{
+    const S = __ws3jump('ws6-charge', 'purser', 7);
+    __ws3arm();
+    const h = S.hero;
+    const killFor = poke => {
+      RESORT.spawn(1, 'crab');
+      const c = S.creeps.find(x => !x.dead);
+      c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z;
+      c.hp = c.maxHp = 1; c.dmg = 0; c.ms = 0;
+      if (poke) Object.assign(c, poke);
+      const g0 = S.gold, b0 = S.ledger.bounty;
+      let g = 0;
+      const k0 = S.kills;
+      while (g++ < 200 && S.kills === k0) RESORT.runTicks(1);
+      return { gold: S.gold - g0, ledger: S.ledger.bounty - b0 };
+    };
+    const plain = killFor(null);                       // (4+7)×1 = 11 → +2 = 13
+    const mini = killFor({ bountyMult: 0.5 });         // round(5.5) = 6 → +2 = 8
+    const boss = killFor({ bountyMult: 10 });          // 110 → +2 = 112
+    RESORT.spawn(1, 'crab');
+    const rc = S.creeps.find(x => !x.dead);
+    rc.dmg = 0; rc.ms = 0;
+    const g1 = S.gold;
+    rc.dead = true; rc.receded = true;                 // a receded creep is the sea's, not yours
+    RESORT.runTicks(2);
+    return { plain, mini, boss, recededPaid: S.gold - g1 };
+  })()`);
+  ok(charge.plain.gold === 13 && charge.plain.ledger === 13,
+    'SERVICE CHARGE on t7: 11 + 2 = 13, and the ledger carries the same number (law by construction)',
+    `gold=+${charge.plain.gold}`);
+  ok(charge.mini.gold === 8 && charge.boss.gold === 112,
+    'the +2 lands AFTER the mult: a mini pays round(5.5)+2=8, a 10× boss bounty pays 110+2=112',
+    `mini=+${charge.mini.gold} boss=+${charge.boss.gold}`);
+  ok(charge.recededPaid === 0, 'a receded creep still pays NOTHING — the innate never invents a bounty');
+
+  // SPYGLASS: the ranged lane, formula-exact as a pair; the melee lane is dead
+  const glass = await evalJs(`(()=>{
+    const S = __ws3jump('ws6-glass', 'magician', 7);   // t7: tier-2 SPYGLASS is unlocked (t5+)
+    RESORT.givePearls(60);
+    __ws3arm();
+    const h = S.hero;
+    h.regen = 0;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x; c.z = h.z - 5.0; c.px = c.x; c.pz = c.z;
+    c.hp = c.maxHp = 900000; c.dmg = 0; c.ms = 0;
+    S.events.length = 0;
+    const d0 = S._draws;
+    let g = 0, bare = null;
+    while (g++ < 80 && !bare) { RESORT.runTicks(1); bare = S.events.find(e => e.type === 'hit'); }
+    RESORT.buySpell('spyglass');             // auto-slots Q — slotted is the law
+    h.regen = 0;
+    S.events.length = 0;
+    g = 0; let scoped = null;
+    while (g++ < 80 && !scoped) { RESORT.runTicks(1); scoped = S.events.find(e => e.type === 'hit'); }
+    return { bare: bare && bare.amount, scoped: scoped && scoped.amount,
+      pct: h.rangedDmgPct, draws: S._draws - d0 };
+  })()`);
+  ok(glass.pct === 12 && glass.scoped === Math.round(glass.bare * 1.12),
+    'SPYGLASS r1: the SAME wand on the SAME target lands round(bare × 1.12) — measured as a pair',
+    `${glass.bare} -> ${glass.scoped}`);
+  ok(glass.draws === 0, 'the spyglass lane is draw-free (crit 0 rolls nothing either side)', `draws=${glass.draws}`);
+  const glassMelee = await evalJs(`(()=>{
+    const S = __ws3jump('ws6-glass2', 'wrestler', 7);  // t7: the tier-2 row must be buyable
+    RESORT.givePearls(60);
+    RESORT.buySpell('spyglass');
+    __ws3arm();
+    const h = S.hero;
+    h.regen = 0;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z;
+    c.hp = c.maxHp = 900000; c.dmg = 0; c.ms = 0;
+    S.events.length = 0;
+    let g = 0, hit = null;
+    while (g++ < 80 && !hit) { RESORT.runTicks(1); hit = S.events.find(e => e.type === 'hit'); }
+    return { hit: hit && hit.amount, pct: S.hero.rangedDmgPct };
+  })()`);
+  ok(glassMelee.pct === 12 && glassMelee.hit === 60,
+    'a slotted SPYGLASS on a MELEE body changes nothing — "melee swings do not care" is engine truth',
+    `hit=${glassMelee.hit}`);
+
+  // WS6 determinism: a bandleader tape (casts + kills + the cd shave) replays
+  // byte-for-byte — the innates draw nothing and the stream keeps its shape
+  const ws6det = `(()=>{
+    RESORT.setSeed('ws6-det');
+    RESORT.pickBody('bandleader');
+    RESORT.givePearls(20);
+    RESORT.buySpell('fireball');
+    RESORT.buySpell('spinslash');
+    RESORT.skipTide();
+    RESORT.runTicks(200);
+    const S = RESORT.state;
+    const c = S.creeps.find(c => !c.dead);
+    if (c) RESORT.cast('Q', c.x, c.z);
+    RESORT.runTicks(300);
+    return RESORT.snapshot();
+  })()`;
+  const w6a = await evalJs(ws6det);
+  const w6b = await evalJs(ws6det);
+  ok(JSON.stringify(w6a) === JSON.stringify(w6b) && w6a.kills > 0,
+    'a WS6 bandleader tape (casts, kills, the cd shave) reproduces byte-for-byte',
+    `kills=${w6a.kills} draws=${w6a.draws}`);
+
+  // zero-HUD guard: the §8.8 matrix answers unchanged on a classic frame
+  const ws6hud = await evalJs(`(async()=>{
+    RESORT.setSeed('ws6-hud');
+    RESORT.pickBody('wrestler');
+    RESORT.skipTide(); RESORT.runTicks(3);
+    for (let i = 0; i < 40 && RESORT.ui.phaseAttr !== 'TIDE'; i++) await new Promise(r => setTimeout(r, 100));
+    const cs = id => getComputedStyle(document.getElementById(id)).display;
+    return { phase: RESORT.ui.phaseAttr, qwer: RESORT.ui.qwerVisible, chips: RESORT.ui.itemChipCount,
+      tidebox: cs('tidebox'), tbtns: document.getElementById('tbtns') === null, stamp: cs('stamp') };
+  })()`);
+  ok(ws6hud.phase === 'TIDE' && ws6hud.qwer === false && ws6hud.chips === 0
+    && ws6hud.tidebox !== 'none' && ws6hud.tbtns && ws6hud.stamp !== 'none',
+    'the WS2 zero-buttons matrix holds after the WS6 diff — no new chrome (stamp keeps its desktop post)',
+    JSON.stringify([ws6hud.phase, ws6hud.qwer, ws6hud.chips]));
+
+  // perf: the eight-card forge frame and a WS6-rig combat frame stay in budget
+  const forgeFrame = await evalJs(`(async()=>{
+    RESORT.setSeed('ws6-perf');
+    RESORT.resume();
+    for (let i = 0; i < 50 && !document.getElementById('forge').classList.contains('show'); i++)
+      await new Promise(r => setTimeout(r, 100));
+    const f0 = RESORT.frames;
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 2; i++) await new Promise(r => setTimeout(r, 60));
+    const calls = RESORT.renderInfo.calls;
+    RESORT.pause(true);
+    return { calls, drew: RESORT.frames - f0 }; })()`);
+  ok(forgeFrame.drew >= 2 && forgeFrame.calls > 0 && forgeFrame.calls <= 220,
+    'the eight-card forge frame renders inside the 220 budget', `calls=${forgeFrame.calls}`);
+  const rigFrame = await evalJs(`(async()=>{
+    RESORT.setSeed('ws6-perf2');
+    RESORT.pickBody('tourist');           // the busiest new rig
+    RESORT.state.hero.hp = 999999; RESORT.state.hero.maxHp = 999999;
+    RESORT.skipTide(); RESORT.runTicks(30);
+    RESORT.spawn(40);
+    RESORT.resume();
+    const f0 = RESORT.frames;
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 2; i++) await new Promise(r => setTimeout(r, 60));
+    const calls = RESORT.renderInfo.calls;
+    RESORT.pause(true);
+    return { calls, drew: RESORT.frames - f0, creeps: RESORT.state.creeps.length }; })()`);
+  ok(rigFrame.drew >= 2 && rigFrame.calls > 0 && rigFrame.calls <= 75,
+    'a WS6 rig at the 40-creep cap stays inside the shipped mid-wave bound (≤75) — the swap is a child-swap',
+    `calls=${rigFrame.calls} creeps=${rigFrame.creeps}`);
 
   // --- 9. LIVE FRAME + SCREENSHOT ---------------------------------------
   console.log('\nRENDER');

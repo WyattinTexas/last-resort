@@ -41,9 +41,9 @@ export const RULES = {
 export const rv = (spec, rank) => Array.isArray(spec) ? spec[0] + spec[1] * ((rank | 0) - 1) : spec;
 
 // ---------------------------------------------------------------------------
-// BODIES (§6: 3 at P0). Model + statline + ONE TINY INNATE. Bodies are chassis;
-// identity comes from what you buy at the racks.
-//   atkS is seconds per swing; sp is flat spellpower; range 7 = ranged basic.
+// BODIES (§6: 8 at full — rev 2 WS6). Model + statline + ONE TINY INNATE.
+// Bodies are chassis; identity comes from what you buy at the racks.
+//   atkS is seconds per swing; sp is flat spellpower; range >= 5 = ranged basic.
 // ---------------------------------------------------------------------------
 export const BODIES = [
   {
@@ -63,6 +63,40 @@ export const BODIES = [
     arch: 'CASTER', flavor: 'The final show ended in a shipwreck. The wand still works.',
     base: { maxHp: 660, regen: 5, dmg: 34, atkS: 0.55, range: 7.0, ms: 6.5, sp: 18, radius: 0.55 },
     innate: { id: 'encore', name: 'ENCORE', desc: 'Spell cooldowns run 15% faster.' },
+  },
+  // --- the WS6 five: each innate hooks a DIFFERENT shipped lane ---
+  {
+    id: 'slinger', name: 'THE COCONUT SLINGER', ico: '🥥',
+    arch: 'MARKSMAN', flavor: 'Grew up skipping stones. The island upgraded the stones.',
+    base: { maxHp: 700, regen: 5, dmg: 55, atkS: 0.78, range: 8.5, ms: 6.9, sp: 0, radius: 0.55 },
+    innate: { id: 'longtoss', name: 'LONG TOSS', desc: 'Basics thrown from 4.5m or farther hit for +30%.' },
+  },
+  {
+    id: 'oldsalt', name: 'THE OLD SALT', ico: '⚓',
+    arch: 'ANCHOR', flavor: 'Forty years at sea. The sea finally returned the favor.',
+    base: { maxHp: 1150, regen: 8, dmg: 54, atkS: 0.82, range: 2.7, ms: 5.4, sp: 0, radius: 0.70 },
+    innate: { id: 'dropanchor', name: 'DROP ANCHOR',
+      desc: 'Stand fast 1.5s to set the anchor: the next 10 swings against you hit for 6 less (they always land at least 1). Step to set it again. Slams do not care.' },
+  },
+  {
+    id: 'tourist', name: 'THE SUNBURNT TOURIST', ico: '😎',
+    arch: 'PEAK SEASON', flavor: "Day one of the trip of a lifetime. It's all downhill from the buffet.",
+    base: { maxHp: 1400, regen: 6, dmg: 74, atkS: 0.55, range: 2.6, ms: 6.6, sp: 0, radius: 0.62 },
+    innate: { id: 'tanfades', name: 'THE TAN FADES',
+      desc: 'Starts mighty: −55 max HP and −5 damage every tide cleared (never below 900 HP / 38 damage).',
+      decay: { hpPerClear: 55, dmgPerClear: 5, hpFloor: 900, dmgFloor: 38 } },
+  },
+  {
+    id: 'bandleader', name: 'THE BANDLEADER', ico: '🎺',
+    arch: 'TEMPO', flavor: 'The ship went down mid-set. The set continues.',
+    base: { maxHp: 760, regen: 6, dmg: 44, atkS: 0.58, range: 2.9, ms: 6.6, sp: 0, radius: 0.58 },
+    innate: { id: 'keepset', name: 'KEEP THE SET MOVING', desc: 'Every kill shaves 0.2s off your running cooldowns.' },
+  },
+  {
+    id: 'purser', name: "THE SHIP'S PURSER", ico: '💰',
+    arch: 'TYCOON', flavor: 'Every wreck has exactly one person who kept the receipts.',
+    base: { maxHp: 900, regen: 7, dmg: 46, atkS: 0.55, range: 2.6, ms: 6.5, sp: 0, radius: 0.60 },
+    innate: { id: 'servicecharge', name: 'SERVICE CHARGE', desc: 'Every bounty pays +2 gold.' },
   },
 ];
 
@@ -227,6 +261,10 @@ export const SPELLS = [
     fx: { type: 'passive', cdrPct: [8, 3] },
     desc: 'While slotted: your cooldowns run %1% faster.',
     vals: r => [rv([8, 3], r)] },
+  { id: 'spyglass', name: 'SPYGLASS', ico: '🔭', cat: 'CURRENT', tier: 2, kind: 'passive',
+    fx: { type: 'passive', rangedDmgPct: [12, 4] },
+    desc: 'While slotted: basics you throw or shoot hit %1% harder. Melee swings do not care.',
+    vals: r => [rv([12, 4], r)] },
 
   // --- DEEP (the bigs; R slot; rank cap 3) ---
   { id: 'meteortide', name: 'METEOR TIDE', ico: '☄️', cat: 'DEEP', tier: 'big', kind: 'active', cd: 45,

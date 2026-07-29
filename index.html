@@ -279,9 +279,10 @@ button.sbtn.blue{background:linear-gradient(180deg,#9FDCFF,#3E8EC4); border-colo
                 background:radial-gradient(ellipse at 50% 38%, rgba(10,59,76,.62), rgba(4,18,26,.88))}
 #forge.show,#victory.show{display:grid}
 #forge-inner,#victory-inner{text-align:center; padding:26px 30px; max-width:min(860px,94vw)}
-/* WS2/WS6-ready: eight body cards must SCROLL at a phone height, not overflow
-   it (dvh where supported, vh fallback for older shells) */
-#forge-inner{max-height:100vh; max-height:100dvh; overflow-y:auto;
+/* WS2/WS6: eight body cards — a 4+4 rack on desktop (1010px fits 4×218 + gaps),
+   phones governed by 94vw + the touch card width; the rack SCROLLS at a phone
+   height, never overflows it (dvh where supported, vh fallback for old shells) */
+#forge-inner{max-width:min(1010px,94vw); max-height:100vh; max-height:100dvh; overflow-y:auto;
   padding:calc(20px + var(--sat)) calc(26px + var(--sar)) calc(20px + var(--sab)) calc(26px + var(--sal))}
 body.touch .bodycard{width:170px}
 .ftitle{font-size:30px; font-weight:900; letter-spacing:.14em; color:var(--gold); text-shadow:0 3px 0 #06202b}
@@ -518,19 +519,19 @@ body.touch .mutebtn{width:60px; height:60px; font-size:24px}
   </div>
 </div>
 
-<script>window.__RESORT_BUILD='20260729012636';</script>
+<script>window.__RESORT_BUILD='20260729023316';</script>
 <script type="importmap">
 {
   "imports": {
-    "three":        "./vendor/three.module.min.js?v=20260729012636",
-    "./js/i18n.js": "./js/i18n.js?v=20260729012636",
-    "./js/rng.js":  "./js/rng.js?v=20260729012636",
-    "./js/data.js": "./js/data.js?v=20260729012636",
-    "./js/sim.js":  "./js/sim.js?v=20260729012636",
-    "./js/scene.js":"./js/scene.js?v=20260729012636",
-    "./js/shop.js": "./js/shop.js?v=20260729012636",
-    "./js/ghost.js":"./js/ghost.js?v=20260729012636",
-    "./js/audio.js":"./js/audio.js?v=20260729012636"
+    "three":        "./vendor/three.module.min.js?v=20260729023316",
+    "./js/i18n.js": "./js/i18n.js?v=20260729023316",
+    "./js/rng.js":  "./js/rng.js?v=20260729023316",
+    "./js/data.js": "./js/data.js?v=20260729023316",
+    "./js/sim.js":  "./js/sim.js?v=20260729023316",
+    "./js/scene.js":"./js/scene.js?v=20260729023316",
+    "./js/shop.js": "./js/shop.js?v=20260729023316",
+    "./js/ghost.js":"./js/ghost.js?v=20260729023316",
+    "./js/audio.js":"./js/audio.js?v=20260729023316"
   }
 }
 </script>
@@ -542,7 +543,7 @@ body.touch .mutebtn{width:60px; height:60px; font-size:24px}
     if (d && !d.textContent) d.textContent = String((e && e.message) || e);
     document.getElementById('boot-error').classList.add('show');
   });
-  import('./js/game.js?v=20260729012636').catch(err => {
+  import('./js/game.js?v=20260729023316').catch(err => {
     document.getElementById('boot-error-detail').textContent = String(err && err.message || err);
     document.getElementById('boot-error').classList.add('show');
   });

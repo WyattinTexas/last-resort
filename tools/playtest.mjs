@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// SURVIVAL QUEST — the playtest battery (P0 goal, link 3): THREE complete 10-tide
-// runs in a real browser, one per body, ghost-raced back to back, plus a perf
-// probe at the 40-creep cap. Prints the pacing table a human tuner needs.
+// SURVIVAL QUEST — the playtest battery (P0 goal, link 3; rev 2 WS6): EIGHT
+// complete 10-tide runs in a real browser, one per body, ghost-raced back to
+// back, plus a perf probe at the 40-creep cap. Runs 1-3 are the classic three
+// and their times are the byte-identity gate; the WS6 five follow. Prints the
+// pacing table a human tuner needs. (~8 min wall clock at 8 runs — not a hang.)
 //
 //   node tools/playtest.mjs [url]
 //
@@ -81,6 +83,11 @@ const main = async () => {
     { body: 'wrestler', seed: 'pt-alpha' },
     { body: 'diver', seed: 'pt-bravo' },
     { body: 'magician', seed: 'pt-charlie' },
+    { body: 'slinger', seed: 'pt-delta' },
+    { body: 'oldsalt', seed: 'pt-echo' },
+    { body: 'tourist', seed: 'pt-foxtrot' },
+    { body: 'bandleader', seed: 'pt-golf' },
+    { body: 'purser', seed: 'pt-hotel' },
   ];
   const results = [];
   let fails = 0;

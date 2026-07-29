@@ -13,7 +13,36 @@ A zero-install browser game — one page, three.js, **no build step, no backend*
 
 ---
 
-## Status — P0 COMPLETE + REV 1 (the squares & the market) + REV 2 WS1 (combat feel) + WS2 (mobile layout) + WS3 (abilities) + WS4 (enemy theatrics)
+## Status — P0 COMPLETE + REV 1 (the squares & the market) + REV 2 WS1 (combat feel) + WS2 (mobile layout) + WS3 (abilities) + WS4 (enemy theatrics) + WS5 (items) + WS6 (heroes)
+
+**Rev 2 WS6 (v0.10.0)** grew the Forge 3 → **EIGHT bodies**. Every body is a
+statline + ONE tiny innate — bodies are chassis, identity still comes from the
+racks. The five newcomers each hook a different shipped system: THE COCONUT
+SLINGER's **LONG TOSS** (+30% on basics thrown from 4.5m or farther) rides the
+real-missile lane, THE OLD SALT's **DROP ANCHOR** (stand 1.5s to set the
+anchor — the next 10 swings against you hit for 6 less; step to set it again)
+folds into the one flat-DR step of the defense stack, THE SUNBURNT TOURIST is
+the strong-early spice body (**THE TAN FADES**: starts at 1400 HP / 74 damage
+and sheds −55/−5 every tide cleared, never below 900/38 — the health bar
+visibly shaves at each clear), THE BANDLEADER's **KEEP THE SET MOVING** shaves
+0.2s off running cooldowns per kill (a sleeping SECOND SUNRISE is untouchable),
+and THE SHIP'S PURSER's **SERVICE CHARGE** adds +2 gold to every bounty —
+measurably earlier trader buys. The parked WS3 debt shipped with them:
+**SPYGLASS** (+12% ranged basics, tier 2 CURRENT) now that two of eight bodies
+are ranged. The Forge shows all eight on the WS2-proven scrollable rack (4+4 on
+desktop, thumb-sized cards on phones), each new body has its own rig and swing
+persona, and the whole roster is measured: every body clears kiting 8/8, every
+body still dies standing inside the run-one window, and the classic three are
+byte-identical to v0.9.0.
+
+**Rev 2 WS5 (v0.9.0)** docked the **PIRATE TRADER** at tide 6 — a seventh
+stall selling eight rows of a different species on the measured gold curve:
+four build-around passives that feed the WS3 rider lanes (CUTLASS, KRAKEN
+SCALE, LUCKY DOUBLOON, CARVED FIGUREHEAD) and four **actives with charges**
+(POWDER KEG ×3, THE BLACK SPOT ×2, GHOST CONCH ×2, MESSAGE IN A BOTTLE ×1 —
+a panic heal, never a self-res: SECOND SUNRISE keeps the only cheat-death).
+The gold economy is printed by the balance tool and two trader archetypes
+prove every row earns its price.
 
 **Rev 2 WS4 (v0.8.0)** made arrivals and deaths PERFORM. Every creep now
 **enters in character at the fence its set broke over** — crabs burrow up out
@@ -145,19 +174,19 @@ Two more that earned their place the hard way:
 ```
 index.html            shell, FFX-era UI skin, ?v= stamped import map
 js/rng.js             mulberry32 + the versioned seed object
-js/data.js            THE CONTENT — bodies, 38 spell rows, items, fruit, mods, stalls
+js/data.js            THE CONTENT — 8 bodies, 39 spell rows, items, fruit, mods, stalls
 js/sim.js             THE SIM — pure, deterministic, testable in node
 js/scene.js           the island: squares, market, palette, zone camera, draw
 js/shop.js            the market UI: forge, racks, castaway sheet, victory
 js/game.js            fixed-step loop, input, HUD, window.RESORT
-tools/cdp_smoke.mjs   headless 131-check battery over CDP (incl. a full 10-tide run)
-tools/touch_probe.mjs 62 real-touch checks at 844×390 (dispatched taps, thumb audit)
+tools/cdp_smoke.mjs   headless 292-check battery over CDP (incl. a full 10-tide run)
+tools/touch_probe.mjs 74 real-touch checks at 844×390 (dispatched taps, thumb audit)
 tools/bot.mjs         the shopper bot — shared by node balance tools and the battery
 tools/shopper.mjs     balance matrix: STAND (run-1 proxy) vs KITE (run-3 proxy)
 bump.sh               stamp a new ?v= before every push
 ```
 
-**One spell engine, thirty-eight data rows.** Every spell in `js/data.js` is a
+**One spell engine, thirty-nine data rows.** Every spell in `js/data.js` is a
 descriptor (`proj` / `bolt` / `line` / `nova` / `aoe` / `chain` / `shield` /
 `goldshield` / `heal` / `hide` / `dash` / `rain` / `buff` / `summon` / `passive`)
 interpreted by one function in the sim — the CHS content cheat code, kept as law.
@@ -237,12 +266,12 @@ Numbers come from `js/data.js` + `js/sim.js` `TUNE` — a balance pass is one di
 tide curve (quota `12 + 2×tide`, the HP brackets, bounty `4 + tide`, pearl prices
 3/5/8) is spec §6 verbatim. The balance target — *a fresh player buying sensibly dies
 around tide 6–8 on run one, clears 10 by run three* — is proxied by the shopper bot
-in `tools/shopper.mjs` and measured over 8 seeds × 3 bodies:
+in `tools/shopper.mjs` and measured over 8 seeds × 8 bodies:
 
 | policy (sensible buys in both) | result |
 |---|---|
-| STAND — casts but never moves (run-one proxy) | dies tide 6–9, avg ≈ 7 |
-| KITE — has learned that feet are a stat (run-three proxy) | clears 10 on 24/24 body×seed runs |
+| STAND — casts but never moves (run-one proxy) | dies tide ~5–9 on every body (death-tide avgs 4.8–8.9) |
+| KITE — has learned that feet are a stat (run-three proxy) | clears 10 on 64/64 body×seed runs |
 
 The creep damage exponent (0.58) is the knob that opened the run-one death window —
 at the old 0.42 a sensible statue cleared tide 10, measured, so it was raised, measured

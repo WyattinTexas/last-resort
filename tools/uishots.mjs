@@ -545,6 +545,70 @@ const main = async () => {
   await snap('ws5-keg.png');
   await evalJs('(RESORT.fx.freeze(0), 1)');
 
+  // 7.10 WS6 HEROES — the eight-card FORGE rack (the roster on one poster;
+  // the forge frame is pre-announce, so no outwait — but frames-poll after
+  // setSeed per the WS4 shot law), then the COCONUT SLINGER mid-lob in a t2
+  // square: the missile frozen mid-flight at LONG TOSS range.
+  await evalJs('(RESORT.pause(true), RESORT.setSeed("ws6-forge-shot"), 1)');
+  await evalJs(`(async()=>{
+    for (let i = 0; i < 50 && !document.getElementById('forge').classList.contains('show'); i++)
+      await new Promise(r => setTimeout(r, 100));
+    const f0 = RESORT.frames;
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 1; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.frames - f0; })()`);
+  await snap('ws6-forge.png');
+
+  await evalJs(`(()=>{
+    RESORT.setSeed('ws6-slinger-shot');
+    RESORT.pickBody('slinger');
+    const S = RESORT.state;
+    S.tide = 1; S.cleared = 1; S.phase = 'BREAK'; S.phaseTicks = 30;   // tide-jump: t2 starts legitimately
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S.quota = 9999; S.spawned = 9999;      // the lab owns the sand
+    for (const c of S.creeps) { c.dead = true; c.receded = true; }
+    RESORT.runTicks(1);
+    return S.tide;
+  })()`);
+  // the market->square port glide rides dt (WS5 gotcha 3) AND the 4s forge
+  // announce must expire before any captioned frame (WS5 gotcha 5)
+  await sleep(4500);
+  await evalJs(`(()=>{
+    const S = RESORT.state;
+    RESORT.spawn(3, 'crab');
+    let i = 0;
+    for (const c of S.creeps) if (!c.dead) {
+      // ~6.5m out: past LONG TOSS's 4.5m line, inside the 7m acquire
+      c.x = S.hero.x - 1.6 + i * 1.6; c.z = S.hero.z - 6.2 - (i % 2) * 0.6;
+      c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000; i++;
+    }
+    return S.creeps.filter(c => !c.dead).length;
+  })()`);
+  // let the entrance records drain, then drop them — the staged pack must
+  // STAND at 6.5m, not burrow at its spawn fence (the ws3-stun lesson)
+  await evalJs(`(async()=>{
+    for (let i = 0; i < 60 && RESORT.fx.entrances === 0; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.fx.entrances; })()`);
+  await evalJs('(RESORT.sceneApi.clearFx(), 1)');
+  await evalJs(`(()=>{
+    const S = RESORT.state;
+    let g = 0;
+    while (g++ < 80) {
+      RESORT.runTicks(1);
+      const m = S.projs.find(p => p.kind === 'basic');
+      if (m && m.traveled > 2.0 && m.traveled < m.maxDist * 0.7) break;
+    }
+    return S.projs.length;
+  })()`);
+  await evalJs(`(async()=>{
+    const f0 = RESORT.frames;
+    RESORT.fx.freeze(20000);
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 1; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.frames - f0; })()`);
+  await snap('ws6-slinger.png');
+  await evalJs('(RESORT.fx.freeze(0), 1)');
+
   // 8. WS2 MOBILE — the phone frames at 844×390 under real touch emulation:
   // a built hero mid-tide with ZERO floating buttons (the workstream's
   // poster) and the compact market break. IS_TOUCH sniffs at boot, so the

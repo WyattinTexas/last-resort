@@ -429,6 +429,40 @@ const main = async () => {
   const fps = (f1 - f0) / 5;
   ok(fps > 15, 'software-GL floor is sane at the phone viewport (real GPUs multiply it)', fps.toFixed(1) + ' fps');
 
+  // --- 13. WS6 — THE FORGE AT EIGHT -------------------------------------
+  // A fresh seed re-enters the FORGE; the eight-card rack must scroll, every
+  // card must be a real touch target, the LAST card must be reachable by a
+  // real dispatched tap, and a WS6 chassis must answer the WS2 zero-buttons
+  // matrix unchanged (no new chrome rode in with the roster).
+  console.log('\nWS6 FORGE — eight cards, one thumb');
+  await evalJs('RESORT.pause(true); RESORT.setSeed("touch-ws6"); 1');
+  ok(await poll(`RESORT.ui.phaseAttr === 'FORGE'`, 30), 're-seed walks back to the FORGE');
+  ok(await evalJs(`document.querySelectorAll('#forge-cards .bodycard').length`) === 8,
+    'the rack shows all EIGHT bodies',
+    String(await evalJs(`document.querySelectorAll('#forge-cards .bodycard').length`)));
+  ok(await evalJs(`(()=>{ const f = document.getElementById('forge-inner');
+    return f.scrollHeight > f.clientHeight; })()`),
+    'eight cards SCROLL at a phone height, never overflow it');
+  const smallCards = await evalJs(`(()=>{ const out = [];
+    document.querySelectorAll('#forge-cards .bodycard').forEach((c, i) => {
+      const r = c.getBoundingClientRect();
+      if (r.width < 150 || r.height < 150) out.push(i + ':' + Math.round(r.width) + 'x' + Math.round(r.height));
+    });
+    return out; })()`);
+  ok(smallCards.length === 0, 'every card is a real touch target (>= 150x150)', smallCards.join(' | '));
+  await evalJs(`(document.querySelectorAll('#forge-cards .bodycard')[7].scrollIntoView({block:'center'}), 1)`);
+  await sleep(250);
+  await tapEl('#forge-cards .bodycard:last-child');
+  ok(await poll(`RESORT.state.bodyId === 'purser'`, 30), 'a real tap on the LAST card picks the 8th body',
+    String(await evalJs('RESORT.state.bodyId')));
+  ok(await poll(`RESORT.ui.phaseAttr === 'BREAK'`, 20), 'the pick walks to BREAK');
+  await evalJs('RESORT.skipTide(); RESORT.runTicks(3)');
+  ok(await poll(`RESORT.ui.phaseAttr === 'TIDE'`, 20), 'a WS6 body enters its first tide');
+  ok(await evalJs('RESORT.ui.qwerVisible') === false
+    && await evalJs('RESORT.ui.itemChipCount') === 0
+    && await evalJs(visible('#tidebox')),
+    'the WS2 zero-buttons matrix answers unchanged on a WS6 chassis');
+
   const errs = cdp.errors.filter(e => !/Audio/i.test(e));
   ok(errs.length === 0, 'no page exceptions', errs.slice(0, 3).join(' | '));
 

@@ -19,7 +19,7 @@ import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSl
 import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, toggleStandings, mmss } from './ghost.js';
 import { AUDIO } from './audio.js';
 
-export const VERSION = '0.9.0';
+export const VERSION = '0.10.0';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;
