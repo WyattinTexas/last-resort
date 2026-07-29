@@ -13,7 +13,28 @@ A zero-install browser game — one page, three.js, **no build step, no backend*
 
 ---
 
-## Status — P0 COMPLETE + REV 1 (the squares & the market) + REV 2 WS1 (combat feel) + WS2 (mobile layout) + WS3 (abilities)
+## Status — P0 COMPLETE + REV 1 (the squares & the market) + REV 2 WS1 (combat feel) + WS2 (mobile layout) + WS3 (abilities) + WS4 (enemy theatrics)
+
+**Rev 2 WS4 (v0.8.0)** made arrivals and deaths PERFORM. Every creep now
+**enters in character at the fence its set broke over** — crabs burrow up out
+of the sand with a dig shake and a poof, reef monkeys vault the rope fence on
+a real ballistic arc, drift jellies bloom out of the surf (splits and surge
+minis bloom in place) — staggered across the set, converging exactly onto the
+sim's own positions. Deaths got **per-skin spectacle**: crabs flip belly-up,
+jellies deflate in a burst of droplets, monkeys tumble face-down — and then
+the body RESTS: the sim's six-second corpse ledger (WS3) is finally **on
+screen as husks**, so THE DROWNED TIDE's pantry is something you can see,
+count, and watch the raise consume. Bosses stage their entrances — KING
+SANDCLAW **erupts** from under the beach in three rings of sand; THE UNDERTOW
+arrives inside a **sweeping foam wave**. The slam telegraph gained a warning
+sound, THE UNDERTOW's surge gained a pre-surge tell (dark foam pulsing while
+its health hangs near the line), and **modifier tides dress the part**: bash
+creeps brandish stone clubs, evasive creeps trail flickering speed-chevrons,
+splitting creeps carry a budding twin (minis, which cannot split, never wear
+one — telegraphs stay honest). Stunned creeps wear an orbiting star each. All
+of it instanced, all render-side: **zero sim behavior changes** — full-run
+times are byte-identical to v0.7.0, and the frame stays ≤60 draw calls fully
+dressed.
 
 **Rev 2 WS3 (v0.7.0)** filled the pool: **38 spells** on the same four racks,
 executed by the same ONE engine. The racks grew every classic mechanic family,
@@ -152,7 +173,7 @@ miss — bosses always take stuns and roots at half duration.
 python3 -m http.server 8791     # no build step; it is just files
 open http://127.0.0.1:8791/
 
-node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 131 checks + a screenshot
+node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 227 checks + a screenshot
 node tools/touch_probe.mjs http://127.0.0.1:8791/    # 62 touch checks at 844×390
 node tools/shopper.mjs                               # the balance matrix
 ```

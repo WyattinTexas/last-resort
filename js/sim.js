@@ -712,7 +712,9 @@ function makeCreep(S, o) {
   };
   if (o.boss) Object.assign(c, o.boss);
   S.creeps.push(c);
-  ev(S, 'spawn', { id: c.id, skin: c.skin, x: c.x, z: c.z, mini: c.mini, big: c.big });
+  // WS4: edge rides along (undefined for splits/surges/summons — they bloom in
+  // place). Event fields are presentation-only; the sim never reads them back.
+  ev(S, 'spawn', { id: c.id, skin: c.skin, x: c.x, z: c.z, mini: c.mini, big: c.big, edge: o.edge });
   return c;
 }
 
@@ -742,6 +744,7 @@ function spawnOne(S) {
     ms: TUNE.creep.ms * skin.ms,
     atkCd: randInt(S.rng, 0, 6),   // desync the first swing of a surf-set
     bob: randInt(S.rng, 0, 999),   // cosmetic phase, drawn from the sim stream so it replays
+    edge: S.setEdge,               // WS4: which fence this arrival breaks over
   });
 }
 
@@ -776,7 +779,8 @@ function spawnBoss(S, spec) {
       surgeAt: spec.surgeAt || 0, surgeCount: spec.surgeCount || 0, surged: false,
     },
   });
-  ev(S, 'boss_spawn', { id: c.id, name: spec.name, bossId: spec.id });
+  ev(S, 'boss_spawn', { id: c.id, name: spec.name, bossId: spec.id,
+    x: at.x, z: at.z, edge: bossEdge, skin: spec.skin });   // WS4: staging reads these
   return c;
 }
 
@@ -1895,7 +1899,7 @@ function bossAbility(S, c) {
         bob: randInt(S.rng, 0, 999),
       });
     }
-    ev(S, 'surge', { count: c.surgeCount });
+    ev(S, 'surge', { count: c.surgeCount, x: c.x, z: c.z });   // WS4: the burst has a spot
   }
 }
 

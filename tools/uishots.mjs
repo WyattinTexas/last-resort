@@ -302,9 +302,21 @@ const main = async () => {
     RESORT.runTicks(4);   // hitFlash (3 ticks) expires -> the PALE-YELLOW stun tint owns the pack
     return S.creeps.filter(c => c.stunTicks > 0).length;
   })()`);
+  // wait for the event drain to land (rings + entrance records born) — a
+  // stalled SwiftShader rAF can push it past any fixed sleep
+  await evalJs(`(async()=>{
+    for (let i = 0; i < 60 && RESORT.fx.entrances === 0; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.fx.entrances; })()`);
   await sleep(220);        // the yellow stun ring expands into frame...
-  await evalJs('(RESORT.fx.freeze(20000), 1)');   // ...then the clock stops for the camera
-  await sleep(500);
+  // WS4: drop the entrance records — the teleported pack must stand stunned
+  // at the hero, not mid-burrow back at its spawn fence — then hold the clock
+  // and PROVE a frame rendered the recomposed pack before shooting.
+  await evalJs(`(async()=>{
+    RESORT.sceneApi.clearFx();
+    const f0 = RESORT.frames;
+    RESORT.fx.freeze(20000);
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 1; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.frames - f0; })()`);
   await snap('ws3-stun.png');
   await evalJs('(RESORT.fx.freeze(0), 1)');
 
@@ -354,6 +366,112 @@ const main = async () => {
   await snap('ws3-rack.png');
   await evalJs('RESORT.state.hero.x = 0; RESORT.state.hero.z = -14; 1');
   await sleep(500);
+
+  // 7.75 WS4 ENEMY THEATRICS — the frames that prove arrivals and deaths
+  // PERFORM: an east-fence set mid-arrival (monkey mid-vault, crab half-
+  // emerged), THE UNDERTOW rising inside its foam wall, and the graveyard —
+  // a wiped pack as a husk field with the drowned already rising from it.
+  await evalJs(`(()=>{
+    RESORT.pause(true);
+    RESORT.setSeed('ws4-entrance-shot');
+    RESORT.pickBody('wrestler');
+    RESORT.skipTide();
+    RESORT.runTicks(3);
+    const S = RESORT.state;
+    S.quota = 9999; S.spawned = 9999;      // the lab owns the sand
+    // stand the hero toward the east fence so the camera frames the arrival
+    S.hero.x = 16; S.hero.z = 2; S.hero.px = 16; S.hero.pz = 2;
+    S.hero.tx = 16; S.hero.tz = 2;
+    return S.creeps.length;
+  })()`);
+  await sleep(900);        // the camera eases over to the fence side
+  await evalJs(`(()=>{
+    const S = RESORT.state;
+    S.setEdge = 1;                          // the set breaks over the EAST fence
+    RESORT.spawn(3, 'monkey');
+    RESORT.spawn(3, 'crab');
+    return S.creeps.length;
+  })()`);
+  // poll the drain in (records born), let the beats reach mid-arc, freeze,
+  // then prove a frozen frame actually rendered before shooting
+  await evalJs(`(async()=>{
+    for (let i = 0; i < 60 && RESORT.fx.entrances === 0; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.fx.entrances; })()`);
+  await sleep(300);        // arrivals reach mid-beat...
+  await evalJs(`(async()=>{
+    const f0 = RESORT.frames;
+    RESORT.fx.freeze(20000);
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 1; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.frames - f0; })()`);
+  await snap('ws4-entrance.png');
+  await evalJs('(RESORT.fx.freeze(0), 1)');
+  await sleep(1600);       // the birth rings die before the next scene's camera
+
+  await evalJs(`(()=>{
+    RESORT.setSeed('ws4-w8');              // this seed rolls the SEA fence —
+    RESORT.pickBody('wrestler');           // the wave breaks over the waterline
+    const S = RESORT.state;
+    S.tide = 9; S.cleared = 9; S.phase = 'BREAK'; S.phaseTicks = 20;
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 60) RESORT.runTicks(1);
+    return S.creeps.filter(c => c.big).length;
+  })()`);
+  // SwiftShader frame pacing eats wall time (WS1 gotcha), so a fixed sleep
+  // can catch the sweep barely begun — POLL the wall's own opacity until the
+  // crest is mid-frame, then freeze.
+  await evalJs(`(async()=>{
+    let w = null;
+    RESORT.sceneApi.scene.traverse(o => { if (o.geometry && o.geometry.parameters && o.geometry.parameters.width === 26) w = o; });
+    for (let i = 0; i < 140; i++) {
+      // z runs -29 -> -21 as the sweep lands; freeze past the halfway crest
+      if (w && w.visible && w.position.z > -24.6) break;
+      await new Promise(r => setTimeout(r, 60));
+    }
+    const f0 = RESORT.frames;
+    RESORT.fx.freeze(20000);
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 1; i++) await new Promise(r => setTimeout(r, 60));
+    return w && +w.position.z.toFixed(1); })()`);
+  await snap('ws4-boss-wave.png');
+  await evalJs('(RESORT.fx.freeze(0), 1)');
+
+  await evalJs(`(()=>{
+    RESORT.setSeed('ws4-graveyard-shot');
+    RESORT.pickBody('wrestler');
+    RESORT.givePearls(60); RESORT.giveGold(9000);
+    const S = RESORT.state;
+    S.tide = 7; S.cleared = 7; S.phase = 'BREAK'; S.phaseTicks = 30;
+    RESORT.buySpell('drownedtide');
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S.quota = 9999; S.spawned = 9999;
+    for (const c of S.creeps) { c.dead = true; c.receded = true; }
+    RESORT.runTicks(1);
+    RESORT.spawn(4, 'crab'); RESORT.spawn(4, 'jelly'); RESORT.spawn(4, 'monkey');
+    let k = 0;
+    for (const c of S.creeps) if (!c.dead) {
+      c.x = S.hero.x - 5.4 + (k % 4) * 3.4; c.z = S.hero.z - 2.2 - Math.floor(k / 4) * 2.6;
+      c.px = c.x; c.pz = c.z; k++;
+    }
+    for (const c of S.creeps) if (!c.dead) c.dead = true;
+    RESORT.runTicks(1);
+    return S.corpses.length;   // 12 records; the raise will eat the 3 freshest
+  })()`);
+  await sleep(1000);       // the spectacles play out: the husk field settles
+  await evalJs(`(()=>{
+    const S = RESORT.state;
+    RESORT.cast('R', S.hero.x, S.hero.z);   // THE DROWNED TIDE eats the freshest
+    RESORT.runTicks(2);
+    return S.allies.filter(a => a.kind === 'drowned').length;
+  })()`);
+  await sleep(200);        // the drowned are mid-rise out of the sand...
+  await evalJs(`(async()=>{
+    const f0 = RESORT.frames;
+    RESORT.fx.freeze(20000);
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 1; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.frames - f0; })()`);
+  await snap('ws4-graveyard.png');
+  await evalJs('(RESORT.fx.freeze(0), 1)');
 
   // 8. WS2 MOBILE — the phone frames at 844×390 under real touch emulation:
   // a built hero mid-tide with ZERO floating buttons (the workstream's

@@ -19,7 +19,7 @@ import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSl
 import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, toggleStandings, mmss } from './ghost.js';
 import { AUDIO } from './audio.js';
 
-export const VERSION = '0.7.0';
+export const VERSION = '0.8.0';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;
@@ -74,9 +74,16 @@ const HINTS = [
   'DRINK THE GUAVA AT HALF HEALTH, NOT AT NONE. CORPSES CANNOT SIP.',
   'THE DEAD STAY SIX SECONDS. THE DROWNED TIDE IS PUNCTUAL.',
   'STUNS HIT BOSSES AT HALF STRENGTH. STILL WORTH IT.',
+  'MOD TIDES DRESS THE PART. READ WHAT THEY CARRY.',
 ];
 let hintIdx = -1;
 let hintAt = 0;
+
+// WS4 pre-surge tell: while THE UNDERTOW's health hangs within 10% of its
+// surge line, dark foam pulses under it every 0.8s — a telegraph by PROPHECY,
+// read from state each frame, never by delaying the sim.
+let surgeTellAt = 0;
+let surgeTells = 0;       // battery probe: pulses fired this run
 
 let sim = null;
 let scene = null;
@@ -227,6 +234,19 @@ function frame(nowMs) {
   scene.setZone(sim.S.zone);
 
   consumeEvents();
+
+  // WS4: the pre-surge tell (a pure read — presentation never writes the sim)
+  if (sim.S.phase === PHASE.TIDE && tSec >= surgeTellAt) {
+    for (const c of sim.S.creeps) {
+      if (c.big && c.surgeAt > 0 && !c.surged && !c.dead && c.hp <= c.maxHp * (c.surgeAt + 0.10)) {
+        scene.popRing(c.x, c.z, 0x0E3E4C, 1.5);
+        surgeTellAt = tSec + 0.8;
+        surgeTells++;
+        break;
+      }
+    }
+  }
+
   shopFrame();
   ghostFrame();
   AUDIO.frame(sim.S.phase);
@@ -285,10 +305,22 @@ function consumeEvents() {
         for (const p of pts) scene.popFoamRing(p[0], p[1]);
         const dir = [TXT('OUT OF THE SEA'), TXT('OVER THE EAST FENCE'), TXT('OVER THE BACK FENCE'), TXT('OVER THE WEST FENCE')][e.edge || 0];
         announce(tf(TXT('A SURF-SET BREAKS %1 — %2 INCOMING'), dir, e.count), '#8CF0E4', 2.2);
+        AUDIO.combat('wave_break');   // WS4: the set's arrival gets a surf voice
         break;
       }
       case 'spawn':
-        scene.popFoamRing(e.x, e.z);
+        // WS4: the entrance beat — scene owns the per-skin curve; the birth
+        // ring recolours by skin (sand for a burrow, lavender for a bloom,
+        // white foam for a sea-edge bloom or a vault's landing mark).
+        // Fresh events only: a paused tool run draining a long batch must not
+        // stage arrivals for creeps that marched half the square ago.
+        if (S.tick - e.tick <= 8) scene.creepBorn(e);
+        if (!e.big) {
+          scene.popRing(e.x, e.z,
+            e.skin === 'crab' ? 0xE8CFA0
+              : e.skin === 'jelly' ? (e.edge === 0 ? 0xFFFFFF : 0xC77BE8)
+              : 0xFFFFFF, 1);
+        }
         break;
       case 'hit': {
         // WS3 venom/burn chunks stay quiet: a small moss-green float, no
@@ -319,7 +351,7 @@ function consumeEvents() {
         scene.pushCorpse({ skin: e.skin, x: e.x + oX, z: e.z + oZ, big: e.big, mini: e.mini,
           face: Math.atan2(S.hero.x - e.x, S.hero.z - e.z) });
         if (e.big) scene.popSparks(e.x + oX, 1.4, e.z + oZ, 0xF5C542, 6, 2.2);
-        AUDIO.combat('kill_pop', { big: e.big });
+        AUDIO.combat('kill_pop', { big: e.big, skin: e.skin });   // WS4: crunch/plop/yelp
         AUDIO.combat('coin', { delay: 0.08 });
         batchKills++;
         if (e.big) batchBigKill = true;
@@ -406,6 +438,7 @@ function consumeEvents() {
         break;
       case 'aoe_warn':
         warns.push({ x: e.x + oX, z: e.z + oZ, r: e.r, ttl: e.ticks / SIM_HZ, total: e.ticks / SIM_HZ, color: e.hostile ? '#FF5B5B' : '#F5C542' });
+        if (e.hostile) AUDIO.combat('slam_warn');   // WS4: the 0.9s window speaks
         break;
       case 'meteor_warn':
         scene.meteorWarn(e.x + oX, e.z + oZ, e.ticks / SIM_HZ);
@@ -469,17 +502,31 @@ function consumeEvents() {
         announce(tf(TXT('MODIFIER TIDE — %1: %2'), TXT(m.name), TXT(m.desc)), '#C77BE8', 5, true);
         break;
       }
-      case 'boss_spawn':
+      case 'boss_spawn': {
+        // WS4 staged entrance: KING SANDCLAW erupts from under the beach; THE
+        // UNDERTOW gets the wave it deserves. game.js decides which off the
+        // event; the scene stays dumb. "%1 SURFACES" fires at breach start —
+        // it IS surfacing.
+        const wave = e.bossId === 'undertow';
+        if (S.tick - e.tick <= 8) scene.bossEntrance({ skin: e.skin, x: e.x, z: e.z, edge: e.edge, wave });
         announce(tf(TXT('%1 SURFACES'), TXT(e.name)), '#FF5B5B', 4.5, true);
         scene.kick(0.3);
-        AUDIO.moment('boss');
+        AUDIO.moment('boss', { wave });
         break;
+      }
       case 'boss_down':
         announce(tf(TXT('%1 GOES UNDER'), TXT(e.name)), '#F5C542', 4, true);
         scene.kick(0.2);
         break;
       case 'surge':
         announce(TXT('THE UNDERTOW CALLS ITS SWARM'), '#C77BE8', 3);
+        // WS4: the surge bursts at the boss's own spot; the minis bloom in
+        // through their own jelly entrances
+        if (e.x !== undefined) {
+          scene.popRing(e.x, e.z, 0xF2FEFF, 1.6);
+          scene.popSparks(e.x, 1.2, e.z, 0xF2FEFF, 8, 1.5);
+        }
+        scene.kick(0.15);
         break;
       case 'victory':
         announce(TXT('TIDE 10 BROKEN — THE ISLAND RESPECTS YOU'), '#F5C542', 6, true);
@@ -978,6 +1025,9 @@ function installDebugApi() {
       warns.length = 0;
       beams.length = 0;
       lastHud = '';
+      scene.clearFx();          // WS4: no entrance/staging/husk state survives a reseed
+      surgeTellAt = 0;
+      surgeTells = 0;
       scene.setHeroBody(null);
       scene.setVista(false);
       showTitle(false);
@@ -1012,6 +1062,13 @@ function installDebugApi() {
       get sparks() { return scene.fxSparks; },
       get sparksDrawn() { return scene.fxSparksDrawn; },
       get combatAudioFired() { return AUDIO.combatFired; },
+      // WS4 theatrics probes — pools and record counts, never pixels
+      get entrances() { return scene.fxEntrances; },
+      get husksDrawn() { return scene.fxHusksDrawn; },
+      get modPool() { return scene.fxModPool; },
+      get creepStars() { return scene.fxCreepStars; },
+      get bossEntranceActive() { return scene.fxBossEntranceActive; },
+      get surgeTells() { return surgeTells; },
       // hold the presentation clock (the hitstop mechanism, gate-free) so a
       // screenshot can catch sparks/corpses mid-air — uishots uses this
       freeze(ms) { hitstopUntil = performance.now() + (ms | 0); return true; },

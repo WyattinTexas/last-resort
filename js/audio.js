@@ -195,6 +195,7 @@ const COMBAT_GATES = {
   whoosh: 120, melee_hit: 70, melee_crit: 150, hit_taken: 150,
   shot: 90, shot_hit: 70, kill_pop: 60, coin: 90, stun_ring: 500,
   slow_crackle: 200, root_snare: 200, slam: 400, whiff: 150,
+  slam_warn: 800, wave_break: 2000,   // WS4: the telegraph speaks; sets share one crash
 };
 
 // fired-counters: bumped on every combat() CALL, before the unlock/mute gate,
@@ -275,9 +276,20 @@ export const AUDIO = {
         break;
       case 'kill_pop':
         if (!voiceOk(o.big ? 0.6 : 0.12)) return;
+        // WS4: the kill confirm speaks per skin — crunch / plop / yelp. Same
+        // cue key, so every gate and fired-counter probe keeps working.
         if (o.big) {
           pluck(140 * p, 450 * p, 0, 0.16, 0.14, 'sine');
           wash(0, 0.14, 0.5, 300, 1400);
+        } else if (o.skin === 'crab') {
+          click(0, 0.17, 1300 * p);
+          thump(210 * p, 70, 0, 0.34, 0.07);
+        } else if (o.skin === 'jelly') {
+          pluck(360 * p, 130 * p, 0, 0.12, 0.10, 'sine');
+          noiseBurst(0.01, 0.05, 0.07, 'lowpass', 700 * p, 300);
+        } else if (o.skin === 'monkey') {
+          pluck(420 * p, 1200 * p, 0, 0.11, 0.09);
+          noiseBurst(0.02, 0.04, 0.05, 'bandpass', 1200 * p, 2000 * p);
         } else {
           pluck(280 * p, 900 * p, 0, 0.11, 0.07, 'sine');
           noiseBurst(0.01, 0.05, 0.06, 'bandpass', 900 * p, 1600 * p);
@@ -310,6 +322,14 @@ export const AUDIO = {
       case 'whiff':
         if (voiceOk(0.1)) noiseBurst(0, 0.035, 0.09, 'bandpass', 500 * p, 1100 * p, 1.2);
         break;
+      case 'slam_warn':
+        // WS4: the 0.9s slam window gets an audio read at 40-creep density
+        if (voiceOk(0.3)) pluck(240 * p, 520 * p, 0, 0.12, 0.28);
+        break;
+      case 'wave_break':
+        // WS4: a surf voice under every set's arrival announce
+        if (voiceOk(0.6)) wash(0, 0.12, 0.6, 200, 1600);
+        break;
     }
   },
 
@@ -317,7 +337,7 @@ export const AUDIO = {
   get combatFired() { return combatFired; },
 
   // the moments — called from the event consumer with sim events
-  moment(kind) {
+  moment(kind, o) {
     if (!unlocked || muted) return;
     switch (kind) {
       case 'tide_start':
@@ -332,6 +352,8 @@ export const AUDIO = {
         thump(90, 28, 0, 0.8, 0.9);
         wash(0, 0.2, 1.6, 120, 900);
         pan(146.83, 0.3, 0.12, 1.6); pan(155.56, 0.32, 0.10, 1.6);   // a sour minor shimmer
+        // WS4: THE UNDERTOW's wave adds one big wash under the shimmer
+        if (o && o.wave) wash(0.1, 0.22, 2.0, 80, 500);
         break;
       case 'clear':
         if (!gate('clear', 1200)) return;

@@ -1570,6 +1570,465 @@ const main = async () => {
     'a WS3 build (bolt + venom + hide) reproduces byte-for-byte — new draws are seeded like the old',
     `kills=${wa.kills} draws=${wa.draws}`);
 
+  // --- 8.10 WS4 ENEMY THEATRICS: entrances, staging, husks, mod dress ----
+  // Idiom: the WS3 lab helpers pose the sand; checks POLL pools and record
+  // counts, never pixels and never sleep-asserts. Scenarios that steal an
+  // event drain (same-eval runTicks + drainEvents) run in their own seeds so
+  // they never eat a visual check's presentation batch (risk-10 idiom).
+  console.log('\nWS4 ENEMY THEATRICS — arrivals and deaths perform, the corpse ledger on screen');
+  await evalJs('RESORT.pause(true)');
+
+  // spawn evs carry their set's edge; split minis carry none (generic bloom)
+  const evEdge = await evalJs(`(()=>{
+    const S = __ws3jump('ws4-ev', 'wrestler', 3);
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.sim.drainEvents();
+    let evs = [], set = null;
+    g = 0;
+    while (g++ < 300 && !set) {
+      RESORT.runTicks(1);
+      evs = evs.concat(RESORT.sim.drainEvents());
+      set = evs.find(e => e.type === 'surf_set');
+    }
+    const spawns = evs.filter(e => e.type === 'spawn');
+    const edgesMatch = spawns.length > 0 && spawns.every(e => e.edge === set.edge);
+    S.tideMod = 'split';
+    const donor = S.creeps.find(c => !c.dead && !c.mini && !c.big);
+    RESORT.sim.drainEvents();
+    donor.dead = true;
+    RESORT.runTicks(1);
+    const post = RESORT.sim.drainEvents().filter(e => e.type === 'spawn');
+    S.tideMod = null;
+    return { edge: set && set.edge, n: spawns.length, edgesMatch,
+      minis: post.length, miniEdgeUndef: post.every(e => e.edge === undefined) };
+  })()`);
+  ok(evEdge.edgesMatch, "every spawn ev carries its surf-set's edge (E0, additive field)",
+    `${evEdge.n} spawns @ edge ${evEdge.edge}`);
+  ok(evEdge.minis === 2 && evEdge.miniEdgeUndef,
+    'a split-death spawn carries edge === undefined — the generic bloom-in-place', `minis=${evEdge.minis}`);
+
+  // boss_spawn carries x/z/edge/skin; surge carries the boss's own spot
+  const evBoss = await evalJs(`(()=>{
+    const S = __ws3jump('ws4-bossev', 'wrestler', 5);
+    RESORT.sim.drainEvents();
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    const bev = RESORT.sim.drainEvents().find(e => e.type === 'boss_spawn');
+    const boss = S.creeps.find(c => c.big);
+    const atSpot = bev && boss && Math.hypot(bev.x - boss.x, bev.z - boss.z) < 1.5;
+    const S2 = __ws3jump('ws4-surgeev', 'wrestler', 10);
+    g = 0;
+    while (S2.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    S2.quota = 9999; S2.spawned = 9999;
+    for (const c of S2.creeps) if (!c.big) { c.dead = true; c.receded = true; }
+    const u = S2.creeps.find(c => c.big);
+    RESORT.sim.drainEvents();
+    u.hp = Math.floor(u.maxHp * 0.49);
+    let sev = null;
+    g = 0;
+    while (!sev && g++ < 30) { RESORT.runTicks(1); sev = RESORT.sim.drainEvents().find(e => e.type === 'surge'); }
+    return { has: !!bev, skin: bev && bev.skin, edge: bev && bev.edge, atSpot,
+      surgeSpot: !!sev && typeof sev.x === 'number' && Math.abs(sev.x - u.x) < 6 && Math.abs(sev.z - u.z) < 6,
+      minis: S2.creeps.filter(c => c.mini && !c.dead).length };
+  })()`);
+  ok(evBoss.has && evBoss.skin === 'crab' && evBoss.edge >= 0 && evBoss.edge <= 3 && evBoss.atSpot,
+    'boss_spawn carries x/z/edge/skin and the spot IS where the boss stands', `edge=${evBoss.edge}`);
+  ok(evBoss.surgeSpot && evBoss.minis === 5,
+    "the surge ev carries THE UNDERTOW's own spot; five minis rise", `minis=${evBoss.minis}`);
+
+  // entrance records: born with the set, gone within ~1s, never touch the sim
+  await evalJs(`(()=>{
+    RESORT.setSeed('ws4-ent');
+    RESORT.pickBody('wrestler');
+    RESORT.skipTide();
+    RESORT.runTicks(3);
+    const S = RESORT.state;
+    S.quota = 9999; S.spawned = 9999;
+    RESORT.spawn(6);
+    return S.creeps.length;
+  })()`);
+  const entLive = await evalJs(`(async()=>{
+    let seen = 0, c0 = null;
+    for (let i = 0; i < 30; i++) {
+      if (RESORT.fx.entrances > 0) {
+        seen = RESORT.fx.entrances;
+        const c = RESORT.state.creeps[0];
+        c0 = { x: c.x, z: c.z, hp: c.hp };
+        break;
+      }
+      await new Promise(r => setTimeout(r, 60));
+    }
+    let decayed = false;
+    for (let i = 0; i < 40; i++) {
+      if (RESORT.fx.entrances === 0) { decayed = true; break; }
+      await new Promise(r => setTimeout(r, 80));
+    }
+    const cNow = RESORT.state.creeps[0];
+    return { seen, decayed, sync: !!c0 && c0.x === cNow.x && c0.z === cNow.z && c0.hp === cNow.hp };
+  })()`);
+  ok(entLive.seen > 0 && entLive.decayed,
+    'a landing set carries live entrance records, pruned within ~1s wall', `peak=${entLive.seen}`);
+  ok(entLive.sync,
+    'the entrance never desyncs the body: sim x/z/hp untouched under the override (presentation cannot write)');
+
+  const entClear = await evalJs(`(async()=>{
+    RESORT.spawn(5);
+    for (let i = 0; i < 20 && RESORT.fx.entrances === 0; i++) await new Promise(r => setTimeout(r, 60));
+    const before = RESORT.fx.entrances;
+    RESORT.setSeed('ws4-clear');
+    return { before, after: RESORT.fx.entrances };
+  })()`);
+  ok(entClear.before > 0 && entClear.after === 0,
+    'setSeed clears the stage — scene.clearFx zeroes the records immediately', JSON.stringify(entClear));
+
+  // per-skin death spectacle + both FIFO caps under a wiped pack
+  const spec = await evalJs(`(async()=>{
+    RESORT.setSeed('ws4-spec');
+    RESORT.pickBody('wrestler');
+    RESORT.skipTide();
+    RESORT.runTicks(3);
+    const S = RESORT.state;
+    S.quota = 9999; S.spawned = 9999;
+    RESORT.spawn(1, 'crab'); RESORT.spawn(1, 'jelly'); RESORT.spawn(1, 'monkey');
+    for (const c of S.creeps) c.dead = true;
+    RESORT.runTicks(1);
+    let three = 0;
+    for (let i = 0; i < 30; i++) {
+      three = RESORT.fx.corpses;
+      if (three >= 3) break;
+      await new Promise(r => setTimeout(r, 60));
+    }
+    const simRecords = S.corpses.length;
+    RESORT.spawn(40);
+    for (const c of S.creeps) c.dead = true;
+    RESORT.runTicks(1);
+    await new Promise(r => setTimeout(r, 150));
+    return { three, simRecords, packCorpses: RESORT.fx.corpses, simCap: S.corpses.length };
+  })()`);
+  ok(spec.three === 3 && spec.simRecords === 3,
+    'one death of each skin: three spectacles animate, three sim records written', `render=${spec.three} sim=${spec.simRecords}`);
+  ok(spec.packCorpses <= 16 && spec.simCap <= 16,
+    'a wiped pack of forty respects both FIFO caps (render ≤16, sim ≤16), no exception',
+    `render=${spec.packCorpses} sim=${spec.simCap}`);
+
+  // husks: the ledger on screen — spectacle handoff, the raise, ttl, the port
+  const husk = await evalJs(`(async()=>{
+    const S = __ws3jump('ws4-husk', 'wrestler', 8);
+    RESORT.buySpell('drownedtide');
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S.quota = 9999; S.spawned = 9999;
+    for (const c of S.creeps) { c.dead = true; c.receded = true; }
+    RESORT.runTicks(1);
+    RESORT.spawn(4, 'crab');
+    for (const c of S.creeps) if (!c.dead) c.dead = true;
+    RESORT.runTicks(1);
+    const simN = S.corpses.length;
+    let husks = 0;
+    for (let i = 0; i < 40; i++) {
+      husks = RESORT.fx.husksDrawn;
+      if (husks === simN && RESORT.fx.corpses === 0) break;
+      await new Promise(r => setTimeout(r, 80));
+    }
+    const match = husks === simN && simN === 4;
+    RESORT.cast('R', S.hero.x, S.hero.z);
+    RESORT.runTicks(2);
+    let afterRaise = -1, drowned = 0;
+    for (let i = 0; i < 20; i++) {
+      afterRaise = RESORT.fx.husksDrawn;
+      drowned = S.allies.filter(a => a.kind === 'drowned').length;
+      if (afterRaise === S.corpses.length && drowned > 0) break;
+      await new Promise(r => setTimeout(r, 60));
+    }
+    const consumed = { afterRaise, simAfter: S.corpses.length, drowned };
+    RESORT.runTicks(130);
+    let ttlZero = false;
+    for (let i = 0; i < 20; i++) {
+      if (RESORT.fx.husksDrawn === 0 && S.corpses.length === 0) { ttlZero = true; break; }
+      await new Promise(r => setTimeout(r, 60));
+    }
+    RESORT.spawn(2, 'crab');
+    for (const c of S.creeps) if (!c.dead) c.dead = true;
+    RESORT.runTicks(1);
+    const preport = S.corpses.length;
+    S.quota = 0; S.spawned = 0;
+    RESORT.runTicks(3);
+    let portZero = false;
+    for (let i = 0; i < 20; i++) {
+      if (S.zone === 'MARKET' && S.corpses.length === 0 && RESORT.fx.husksDrawn === 0) { portZero = true; break; }
+      await new Promise(r => setTimeout(r, 60));
+    }
+    return { match, consumed, ttlZero, preport, portZero };
+  })()`);
+  ok(husk.match,
+    'after the 0.7s spectacles the husks take the stage: husksDrawn === S.corpses.length — the six-second ledger is ON SCREEN');
+  ok(husk.consumed.drowned >= 3 && husk.consumed.afterRaise === husk.consumed.simAfter,
+    'THE DROWNED TIDE eats the freshest and the husks drop with the records, same frame batch',
+    `drowned=${husk.consumed.drowned} husks=${husk.consumed.afterRaise}/${husk.consumed.simAfter}`);
+  ok(husk.ttlZero, "6s of ticks retire record and husk together — the sink rides the record's own ttl");
+  ok(husk.preport >= 2 && husk.portZero,
+    'the port clears the pantry: sim corpses AND husks zero at the market', `preport=${husk.preport}`);
+
+  // suppression: no body ever draws twice during the spectacle/husk overlap
+  const overlap = await evalJs(`(async()=>{
+    RESORT.setSeed('ws4-overlap');
+    RESORT.pickBody('wrestler');
+    RESORT.skipTide();
+    RESORT.runTicks(3);
+    const S = RESORT.state;
+    S.quota = 9999; S.spawned = 9999;
+    RESORT.spawn(6);
+    for (const c of S.creeps) c.dead = true;
+    RESORT.runTicks(1);
+    let bad = null;
+    for (let i = 0; i < 14; i++) {
+      const h = RESORT.fx.husksDrawn, sp = RESORT.fx.corpses, sim = S.corpses.length;
+      if (h + sp > sim) bad = { h, sp, sim };
+      await new Promise(r => setTimeout(r, 70));
+    }
+    return { bad, final: { h: RESORT.fx.husksDrawn, sim: S.corpses.length } };
+  })()`);
+  ok(!overlap.bad && overlap.final.h === overlap.final.sim,
+    'spectacle/husk suppression holds: husksDrawn + spectacles ≤ ledger through the whole overlap window',
+    overlap.bad ? JSON.stringify(overlap.bad) : `settled ${overlap.final.h}/${overlap.final.sim}`);
+
+  // mod accessories: the tide dresses the part, one pool, honest eligibility
+  const mod = await evalJs(`(async()=>{
+    const S = __ws3jump('ws4-mod', 'wrestler', 7);
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S.quota = 9999; S.spawned = 9999;
+    for (const c of S.creeps) { c.dead = true; c.receded = true; }
+    RESORT.runTicks(1);
+    RESORT.spawn(5, 'crab');
+    S.tideMod = 'bash';
+    let bash = 0;
+    for (let i = 0; i < 25; i++) { bash = RESORT.fx.modPool; if (bash === 5) break; await new Promise(r => setTimeout(r, 70)); }
+    S.creeps[0].big = true;
+    let bigless = 0;
+    for (let i = 0; i < 20; i++) { bigless = RESORT.fx.modPool; if (bigless === 4) break; await new Promise(r => setTimeout(r, 70)); }
+    S.creeps[0].big = false;
+    S.tideMod = 'split';
+    S.creeps[1].dead = true;
+    RESORT.runTicks(1);
+    const minis = S.creeps.filter(c => c.mini && !c.dead).length;
+    const eligible = S.creeps.filter(c => !c.dead && !c.big && !c.mini).length;
+    let split = -1;
+    for (let i = 0; i < 25; i++) { split = RESORT.fx.modPool; if (split === eligible) break; await new Promise(r => setTimeout(r, 70)); }
+    S.tideMod = null;
+    let none = -1;
+    for (let i = 0; i < 20; i++) { none = RESORT.fx.modPool; if (none === 0) break; await new Promise(r => setTimeout(r, 70)); }
+    return { bash, bigless, minis, eligible, split, none };
+  })()`);
+  ok(mod.bash === 5 && mod.bigless === 4,
+    'BASH CRABS: every living non-big wears the stone club (5, then 4 when one goes big)', `${mod.bash}->${mod.bigless}`);
+  ok(mod.minis === 2 && mod.split === mod.eligible && mod.none === 0,
+    'SPLITTING JELLIES dress non-minis only (babies cannot split — honest telegraph); no mod, no pool',
+    `split=${mod.split}/${mod.eligible} minis=${mod.minis} off=${mod.none}`);
+
+  // per-creep stun stars: one per stunned creep, hero rig independent
+  const stars = await evalJs(`(async()=>{
+    const S = __ws3jump('ws4-stars', 'wrestler', 7);
+    RESORT.buySpell('sandspout');
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S.quota = 9999; S.spawned = 9999;
+    for (const c of S.creeps) { c.dead = true; c.receded = true; }
+    RESORT.runTicks(1);
+    RESORT.spawn(6, 'monkey');
+    for (const c of S.creeps) if (!c.dead) {
+      c.x = S.hero.x + 1.5; c.z = S.hero.z - 1.5; c.px = c.x; c.pz = c.z;
+      c.hp = c.maxHp = 90000;
+    }
+    await new Promise(r => setTimeout(r, 1000));
+    const slot = ['Q', 'W', 'E'].find(k => S.slots[k] === 'sandspout');
+    RESORT.cast(slot, S.hero.x, S.hero.z);
+    RESORT.runTicks(2);
+    const stunned = S.creeps.filter(c => c.stunTicks > 0).length;
+    let seen = 0;
+    for (let i = 0; i < 20; i++) { seen = RESORT.fx.creepStars; if (seen === stunned) break; await new Promise(r => setTimeout(r, 70)); }
+    S.hero.stun = 40;
+    await new Promise(r => setTimeout(r, 150));
+    const heroDuring = RESORT.fx.creepStars;
+    S.hero.stun = 0;
+    RESORT.runTicks(40);
+    let zero = -1;
+    for (let i = 0; i < 20; i++) { zero = RESORT.fx.creepStars; if (zero === 0) break; await new Promise(r => setTimeout(r, 70)); }
+    return { stunned, seen, heroDuring, zero };
+  })()`);
+  ok(stars.stunned >= 5 && stars.seen === stars.stunned,
+    'every stunned creep wears ONE orbiting star (≤40 pool)', `${stars.seen}/${stars.stunned}`);
+  ok(stars.heroDuring === stars.seen && stars.zero === 0,
+    "the hero's 3-star rig is a separate pool (creep count unmoved by hero.stun); stars die with the stun");
+
+  // boss entrance: staged on arrival, over by ~1.5s, slam grace honoured
+  const bent = await evalJs(`(async()=>{
+    const S = __ws3jump('ws4-boss', 'wrestler', 5);
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    let active = false;
+    for (let i = 0; i < 25; i++) {
+      if (RESORT.fx.bossEntranceActive) { active = true; break; }
+      await new Promise(r => setTimeout(r, 60));
+    }
+    RESORT.runTicks(25);   // 1.25 sim-seconds inside the entrance window
+    const hostiles = S.pendings.filter(p => p.side === 'hostile').length;
+    let done = false;
+    for (let i = 0; i < 30; i++) {
+      if (!RESORT.fx.bossEntranceActive) { done = true; break; }
+      await new Promise(r => setTimeout(r, 90));
+    }
+    const b = S.creeps.find(c => c.big);
+    S.hero.x = b.x + 2; S.hero.z = b.z; S.hero.px = S.hero.x; S.hero.pz = S.hero.z;
+    RESORT.runTicks(60);   // the grace elapses; the first slam warn fires (audio check below)
+    return { active, hostiles, done };
+  })()`);
+  ok(bent.active && bent.done,
+    'KING SANDCLAW erupts: entrance staging live within a frame of boss_spawn, over by ~1.5s wall');
+  ok(bent.hostiles === 0,
+    "no hostile pending exists mid-entrance — the sim's own secs(2.5) first-slam grace covers the whole staging");
+
+  // THE UNDERTOW's wave: staged entrance on tide 10, budget intact mid-wave
+  const wave = await evalJs(`(async()=>{
+    const S = __ws3jump('ws4-wave', 'wrestler', 10);
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    let active = false, calls = 0;
+    for (let i = 0; i < 25; i++) {
+      if (RESORT.fx.bossEntranceActive) {
+        active = true;
+        calls = Math.max(calls, RESORT.renderInfo.calls);
+      }
+      if (active && calls > 0) break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    for (let i = 0; i < 6; i++) { calls = Math.max(calls, RESORT.renderInfo.calls); await new Promise(r => setTimeout(r, 60)); }
+    return { active, calls };
+  })()`);
+  ok(wave.active, "THE UNDERTOW gets its wave — entrance staging active on tide 10's arrival");
+  // the near-empty square is the EXPENSIVE frame (59 calls before any creep —
+  // pre-WS4 baseline); the wave moment adds the wall + boss + live foam rings
+  // (rings are a bounded pool of 8 single meshes). Bounded ≤75, far under 220.
+  ok(wave.calls > 0 && wave.calls <= 75,
+    'draw calls mid-wave stay bounded (59-call empty-square baseline + wall + rings)',
+    `${wave.calls} ≤ 75 (hard budget 220)`);
+
+  // full dress rehearsal: husk field + clubs + stars + the drowned, ≤60 calls
+  const dress = await evalJs(`(async()=>{
+    const S = __ws3jump('ws4-dress', 'wrestler', 8);
+    RESORT.buySpell('sandspout');
+    RESORT.buySpell('drownedtide');
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S.quota = 9999; S.spawned = 9999;
+    for (const c of S.creeps) { c.dead = true; c.receded = true; }
+    RESORT.runTicks(1);
+    RESORT.spawn(14, 'crab'); RESORT.spawn(13, 'jelly'); RESORT.spawn(13, 'monkey');
+    let k = 0;
+    for (const c of S.creeps) { if (k >= 12) break; c.dead = true; k++; }
+    RESORT.runTicks(1);
+    S.tideMod = 'bash';
+    for (const c of S.creeps) if (!c.dead) {
+      c.x = S.hero.x + 2 + (k % 5); c.z = S.hero.z - 2 - (k % 4);
+      c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000; k++;
+    }
+    const slot = ['Q', 'W', 'E'].find(kk => S.slots[kk] === 'sandspout');
+    RESORT.cast(slot, S.hero.x, S.hero.z);
+    RESORT.cast('R', S.hero.x, S.hero.z);
+    RESORT.runTicks(2);
+    await new Promise(r => setTimeout(r, 1100));
+    let calls = 0;
+    for (let i = 0; i < 8; i++) { calls = Math.max(calls, RESORT.renderInfo.calls); await new Promise(r => setTimeout(r, 70)); }
+    return {
+      alive: S.creeps.filter(c => !c.dead).length,
+      husks: RESORT.fx.husksDrawn, modPool: RESORT.fx.modPool, stars: RESORT.fx.creepStars,
+      drowned: S.allies.filter(a => a.kind === 'drowned').length, calls };
+  })()`);
+  ok(dress.husks >= 6 && dress.modPool > 0 && dress.stars > 0 && dress.drowned >= 3,
+    'the full dress stages everything at once: husk field + stone clubs + stun stars + the drowned out',
+    `husks=${dress.husks} clubs=${dress.modPool} stars=${dress.stars} drowned=${dress.drowned} alive=${dress.alive}`);
+  ok(dress.calls > 0 && dress.calls <= 60,
+    'at full dress the frame holds the target — instancing proof intact', `${dress.calls} ≤ 60`);
+
+  // audio wiring, muted headless: the fired-counter law (WS1 pattern)
+  const fired = await evalJs(`({
+    warn: RESORT.fx.combatAudioFired.slam_warn || 0,
+    wave: RESORT.fx.combatAudioFired.wave_break || 0,
+    pop: RESORT.fx.combatAudioFired.kill_pop || 0,
+    unlocked: RESORT.audio.unlocked })`);
+  ok(fired.warn >= 1 && fired.wave >= 1 && fired.pop >= 1 && fired.unlocked === false,
+    'muted headless wiring: slam_warn + wave_break counted, kill_pop kept its key through the skin spin, context never created',
+    JSON.stringify(fired));
+
+  // the pre-surge tell: prophecy by pulse, then the surge births five blooms
+  const tell = await evalJs(`(async()=>{
+    const S = __ws3jump('ws4-tell', 'wrestler', 10);
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S.quota = 9999; S.spawned = 9999;
+    for (const c of S.creeps) if (!c.big) { c.dead = true; c.receded = true; }
+    RESORT.runTicks(1);
+    const u = S.creeps.find(c => c.big);
+    const tells0 = RESORT.fx.surgeTells;
+    u.hp = Math.floor(u.maxHp * 0.55);
+    await new Promise(r => setTimeout(r, 1900));
+    const pulses = RESORT.fx.surgeTells - tells0;
+    const surgedEarly = u.surged;
+    u.hp = Math.floor(u.maxHp * 0.49);
+    RESORT.runTicks(2);
+    let ent = 0;
+    for (let i = 0; i < 20; i++) { ent = RESORT.fx.entrances; if (ent >= 5) break; await new Promise(r => setTimeout(r, 60)); }
+    return { pulses, surgedEarly, surged: u.surged, ent };
+  })()`);
+  ok(tell.pulses >= 2 && !tell.surgedEarly,
+    'the pre-surge tell pulses while hp hangs inside 10% of the line — telegraph by prophecy, the sim never delayed',
+    `${tell.pulses} pulses in 1.9s`);
+  ok(tell.surged && tell.ent >= 5,
+    'through the line: the surge fires and all five minis carry entrance records (the bloom IS the read)',
+    `entrances=${tell.ent}`);
+
+  // WS4 determinism: a boss tide replays byte-for-byte with the theatre live
+  const ws4det = `(()=>{
+    RESORT.setSeed('ws4-det');
+    RESORT.pickBody('wrestler');
+    RESORT.givePearls(20);
+    RESORT.buySpell('sandspout');
+    const S = RESORT.state;
+    S.tide = 4; S.cleared = 4; S.phase = 'BREAK'; S.phaseTicks = 30;
+    RESORT.runTicks(420);
+    const c = S.creeps.find(x => !x.dead && !x.big);
+    if (c) RESORT.cast('Q', c.x, c.z);
+    RESORT.runTicks(240);
+    return RESORT.snapshot();
+  })()`;
+  const w4a = await evalJs(ws4det);
+  await sleep(400);
+  const w4b = await evalJs(ws4det);
+  // the naked wrestler deterministically DIES to KING SANDCLAW here — the
+  // washout (tide rolls back to 4, corpses cleared) is part of what replays
+  ok(JSON.stringify(w4a) === JSON.stringify(w4b) && w4a.tide === 4 && w4a.deaths === 1,
+    'a WS4 boss tide (eruption + husks + stars + a washout, theatre live) reproduces byte-for-byte',
+    `draws=${w4a.draws} deaths=${w4a.deaths}`);
+
+  // zero-HUD-change guard: the §8.8 matrix answers hold on a mid-tide frame
+  const uiGuard = await evalJs(`(async()=>{
+    RESORT.setSeed('ws4-ui');
+    RESORT.pickBody('wrestler');
+    RESORT.skipTide();
+    RESORT.runTicks(30);
+    for (let i = 0; i < 40 && RESORT.ui.phaseAttr !== 'TIDE'; i++) await new Promise(r => setTimeout(r, 100));
+    return { phase: RESORT.ui.phaseAttr, qwer: RESORT.ui.qwerVisible,
+      chips: RESORT.ui.itemChipCount, mute: RESORT.ui.muteButtonCount };
+  })()`);
+  ok(uiGuard.phase === 'TIDE' && uiGuard.qwer === false && uiGuard.chips === 0 && uiGuard.mute >= 3,
+    'WS4 touched no chrome: the WS2 matrix answers hold mid-tide (naked run = zero buttons)', JSON.stringify(uiGuard));
+
   // --- 9. LIVE FRAME + SCREENSHOT ---------------------------------------
   console.log('\nRENDER');
   await evalJs('RESORT.i18nAudit(true)');

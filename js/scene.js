@@ -356,6 +356,18 @@ export function createScene(canvas, COVE, MARKET) {
   }
   function popFoamRing(x, z) { popRing(x, z, 0xFFFFFF, 1); }
 
+  // --- THE WAVE (WS4): one stretched foam wall for THE UNDERTOW's entrance.
+  // Hidden except during that 1.4s, so it costs +1 draw call once per run.
+  const waveTex = makeBlobTexture('rgba(255,255,255,0.95)', 'rgba(255,255,255,0)');
+  waveTex.wrapS = THREE.RepeatWrapping;
+  waveTex.repeat.set(6, 1);
+  const waveWall = new THREE.Mesh(
+    new THREE.PlaneGeometry(26, 5, 1, 1),
+    new THREE.MeshBasicMaterial({ color: 0xF2FEFF, map: waveTex, transparent: true, opacity: 0,
+      depthWrite: false, side: THREE.DoubleSide }));
+  waveWall.visible = false;
+  scene.add(waveWall);
+
   // -------------------------------------------------------------------------
   // SET DRESSING — rope-post fences, palms, rocks, cliffs, a beached rowboat,
   // tiki-torch stalls where the boardwalk shops will stand (link 2), and one
@@ -974,6 +986,40 @@ export function createScene(canvas, COVE, MARKET) {
   drownedMesh.frustumCulled = false;
   scene.add(drownedMesh);
 
+  // --- MOD-TIDE ACCESSORIES (WS4): one worn prop per modifier, one instanced
+  // pool each, filled off the living creeps' own transforms. Mods are
+  // exclusive, so at most ONE pool has count > 0 on any tide (+1 draw call on
+  // mod tides; a count-0 InstancedMesh costs nothing — WS3-measured). Shape
+  // reads, not colour: silhouettes survive the 24px/m camera at pack density.
+  const MOD_CAP = 40;
+  function makeModPool(geo, mat) {
+    const im = new THREE.InstancedMesh(geo, mat, MOD_CAP);
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    im.count = 0;
+    im.frustumCulled = false;
+    scene.add(im);
+    return im;
+  }
+  // BASH CRABS: a chunky stone club lump brandished overhead
+  const modBash = makeModPool(new THREE.DodecahedronGeometry(0.27, 0), lam(PAL.rockDark));
+  // EVASIVE MONKEYS: two white speed-chevrons trailing behind the facing
+  const chevGeo = (() => {
+    const parts = [];
+    for (const dz of [-0.62, -0.95]) {
+      const a = new THREE.PlaneGeometry(0.34, 0.09); a.rotateY(0.6); a.translate(-0.13, 0, dz);
+      const b = new THREE.PlaneGeometry(0.34, 0.09); b.rotateY(-0.6); b.translate(0.13, 0, dz);
+      parts.push(a, b);
+    }
+    return mergeGeos(parts);
+  })();
+  const modEvasive = makeModPool(chevGeo,
+    new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide }));
+  // SPLITTING JELLIES: a budding twin bulging off the flank — "it's got a spare"
+  const modSplit = makeModPool(new THREE.SphereGeometry(0.22, 6, 5),
+    new THREE.MeshLambertMaterial({ color: C(PAL.jelly), transparent: true, opacity: 0.7, flatShading: true }));
+  const MOD_Y = { crab: 1.0, jelly: 1.35, monkey: 1.6 };   // worn at skin height
+  let modPoolCount = 0;
+
   // --- SPELL PROJECTILES: one glowing instanced batch, coloured by rack. ---
   const PROJ_CAP = 64;
   const projMesh = new THREE.InstancedMesh(
@@ -1104,6 +1150,50 @@ export function createScene(canvas, COVE, MARKET) {
     if (!creepMeshes[o.skin]) return;
     if (corpses.length >= CORPSE_CAP) corpses.shift();
     corpses.push({ skin: o.skin, x: o.x, z: o.z, face: o.face || 0, mini: !!o.mini, t0: null });
+    // WS4: the jelly's deflate bursts into droplets at the moment of death
+    if (o.skin === 'jelly') popSparks(o.x, 0.5, o.z, 0xC77BE8, 5, 0.9);
+  }
+
+  // -------------------------------------------------------------------------
+  // WS4 ENEMY THEATRICS — entrances, boss staging, husks, the drowned rise.
+  // All of it render-side state fed by events; the sim position is the truth
+  // underneath and every curve CONVERGES to it. fx.freeze holds any of it
+  // mid-pose for the camera (tSec-driven, like everything else here).
+  // -------------------------------------------------------------------------
+  const ENTRANCE_SEC = 0.55;
+  const births = new Map();          // creep id -> {t0, x, z, edge, stagger, poofed}
+  function creepBorn(e) {
+    if (e.big) return;               // bosses stage through bossEntrance below
+    births.set(e.id, {
+      t0: null, x: e.x, z: e.z, edge: e.edge,
+      // deterministic per-creep stagger spreads a set's arrivals ≤0.25s
+      stagger: ((e.id * 2654435761) % 5) * 0.05,
+      poofed: false,
+    });
+  }
+
+  let bossEnt = null;                // {skin, x, z, edge, wave, t0, beats}
+  function bossEntrance(e) {
+    bossEnt = { skin: e.skin, x: e.x, z: e.z, edge: e.edge || 0, wave: !!e.wave, t0: null, beats: 0 };
+  }
+
+  // husk memory: when a death spectacle completes, remember mini/face by exact
+  // position so the sim-driven husk keeps the body's scale and heading. Entries
+  // die with their sim record (pruned in the husk pass).
+  const huskMemo = new Map();        // "x|z" -> {mini, face}
+  const huskKey = (x, z) => x + '|' + z;
+
+  const drownedBirths = new Map();   // ally id -> t0 (the 0.4s rise-from-sand)
+
+  // setSeed clears the stage: no entrance/staging/husk state survives a reseed
+  function clearFx() {
+    births.clear();
+    drownedBirths.clear();
+    huskMemo.clear();
+    bossEnt = null;
+    corpses.length = 0;
+    bossCorpse = null;
+    waveWall.visible = false;
   }
 
   // STUN STARS: the cartoon read over a stunned hero's head (+1 draw call).
@@ -1129,14 +1219,26 @@ export function createScene(canvas, COVE, MARKET) {
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }
+  const starMat = new THREE.MeshBasicMaterial({ map: makeStarTexture(), transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide });
   const stunStars = new THREE.InstancedMesh(
     new THREE.PlaneGeometry(0.62, 0.62),
-    new THREE.MeshBasicMaterial({ map: makeStarTexture(), transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide }),
+    starMat,
     3);
   stunStars.count = 3;
   stunStars.frustumCulled = false;
   stunStars.visible = false;
   scene.add(stunStars);
+
+  // WS4: the parked WS3 debt — per-creep stun stars. One star orbits every
+  // stunned creep (the tint alone barely reads on an orange crab — WS3 gotcha),
+  // same texture, own pool (+1 draw call only while anything is stunned).
+  const CSTAR_CAP = 40;
+  const creepStars = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.55, 0.55), starMat, CSTAR_CAP);
+  creepStars.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  creepStars.count = 0;
+  creepStars.frustumCulled = false;
+  scene.add(creepStars);
+  const CSTAR_Y = { crab: 1.2, jelly: 1.55, monkey: 1.75 };   // skin height + 0.4
 
   // the wand-tip flash, timed to the missile launch (game.js calls this on 'shot')
   let wandFlashT = 99;
@@ -1183,6 +1285,9 @@ export function createScene(canvas, COVE, MARKET) {
   const basicGlow = C(0xFFE9A8);   // the wand missile's warm tracer
   const sparkCol = new THREE.Color();
   let curBodyId = null;
+  let tSecNow = 0;                 // draw()'s tSec, visible to the WS4 curve helpers
+  const huskCol = C(0xCFC3A6).multiplyScalar(0.88);   // corpseCol darkened ~12%
+  let husksDrawn = 0;              // battery probe: husk instances this frame
 
   // --- WS1 THE SWING CYCLE — windup / strike / backswing, driven entirely off
   // sim state the renderer already sees. windK rises off the attack COOLDOWN
@@ -1204,6 +1309,109 @@ export function createScene(canvas, COVE, MARKET) {
       return strikeCurve(u) - windK * u;
     }
     return -windK;
+  }
+
+  // --- WS4 per-skin ENTRANCE beat (0.55s): fills m4. Anchored at the event
+  // x/z — the fence the set broke over — and mixed toward the live interpolated
+  // sim position by k=1, absorbing the ≤1.2m the creep marched meanwhile. The
+  // sim never granted an entrance grace; the convergence blend IS the grace.
+  function composeEntrance(c, b, k, cx, cz, hopY, face, base) {
+    const mixK = k * k * (3 - 2 * k);          // smoothstep toward the live walk
+    let ex = b.x, ez = b.z, ey = 0;
+    let sx = 1, sy = 1, sz = 1, yaw = face, pitch = 0;
+    if (b.edge === undefined || c.skin === 'jelly') {
+      // SURF-BURST / BLOOM: overshoot scale rising out of the surf. Also the
+      // automatic entrance of surge minis and split minis — the burst IS the read
+      const ov = k < 0.6 ? 0.05 + (k / 0.6) * 1.10 : 1.15 - 0.15 * ((k - 0.6) / 0.4);
+      sx = sy = sz = ov;
+      ey = -0.5 * (1 - easeOut3(k));
+    } else if (c.skin === 'crab') {
+      // BURROW-UP: born under the spawn point, rises with a dig shake; the sand
+      // poof pops at breach. A sea-edge crab reads as rising from the shallows
+      // — same curve, free.
+      ey = -1.4 * (1 - easeOut3(k));
+      yaw = face + Math.sin(tSecNow * 42 + c.id) * 0.08 * (1 - k);
+      if (!b.poofed && k >= 0.3) {
+        b.poofed = true;
+        popRing(b.x, b.z, 0xE8CFA0, 0.8);
+        popSparks(b.x, 0.35, b.z, 0xE8CFA0, 4, 0.9);
+      }
+    } else {
+      // FENCE-VAULT: a ballistic arc from 1.8m outside the fence line along the
+      // set edge's normal (apex 2.2m clears the 1.5m rope), squash on landing.
+      const OUT = [[0, -1.8], [1.8, 0], [0, 1.8], [-1.8, 0]][b.edge] || [0, -1.8];
+      const landK = 0.78;
+      if (k < landK) {
+        const u = k / landK;
+        ex = b.x + OUT[0] * (1 - u);
+        ez = b.z + OUT[1] * (1 - u);
+        ey = 8.8 * u * (1 - u);                // parabola, apex 2.2m at u=0.5
+        pitch = -0.3 * Math.sin(u * Math.PI);  // leans into the arc
+      } else {
+        const v = (k - landK) / (1 - landK);
+        const sq = Math.sin(v * Math.PI);      // the 0.12s landing squash
+        sx = sz = 1 + 0.3 * sq;
+        sy = 1 - 0.35 * sq;
+      }
+    }
+    const px = ex + (cx - ex) * mixK;
+    const pz = ez + (cz - ez) * mixK;
+    const py = ey * (1 - mixK) + hopY * mixK;
+    q.setFromAxisAngle(UP, yaw);
+    if (pitch) q.multiply(qPitch.setFromAxisAngle(X_AXIS, pitch));
+    m4.compose(vPos.set(px, py, pz), q, vScl.set(base * sx, base * sy, base * sz));
+  }
+
+  // --- WS4 per-skin DEATH SPECTACLE (0.7s, C1: physical comedy per skin) and
+  // the HUSK rest pose it hands off to. The spectacle's final frame EQUALS the
+  // husk pose, so the spectacle->husk handoff is invisible by construction.
+  function composeSpectacle(co, k, base) {
+    if (co.skin === 'jelly') {
+      // deflates: flat disc + a shiver of droplets (popped at death)
+      const d = Math.min(1, k / 0.43);
+      q.setFromAxisAngle(UP, co.face);
+      m4.compose(
+        vPos.set(co.x, 0.1 * (1 - d) + 0.04, co.z), q,
+        vScl.set(base * (1 + 0.35 * d), base * (1 - 0.82 * d), base * (1 + 0.35 * d)));
+    } else if (co.skin === 'monkey') {
+      // tumbles: 1.5 yaw turns pitching forward, lands face-down
+      const t = Math.min(1, k / 0.57);
+      const e = easeOut3(t);
+      q.setFromAxisAngle(UP, co.face + Math.PI * 3 * e);
+      q.multiply(qPitch.setFromAxisAngle(X_AXIS, 1.257 * e));
+      m4.compose(
+        vPos.set(co.x, -0.15 * t + 0.3 * Math.sin(Math.min(1, k * 1.5) * Math.PI) * (1 - k), co.z),
+        q, vScl.set(base, base, base));
+    } else {
+      // crab flips belly-up: roll about the facing axis, one bounce, claws up.
+      // Rest y is barely sunk (-0.04): the proto's belly spans ±0.38 around
+      // its origin, so the plan's -0.30 buried the whole husk — measured in
+      // the graveyard frame, not guessed.
+      const r = Math.min(1, k / 0.5);
+      const w = Math.min(1, k * 1.3);
+      q.setFromAxisAngle(UP, co.face);
+      q.multiply(qPitch.setFromAxisAngle(Z_AXIS, Math.PI * easeOut3(r)));
+      m4.compose(
+        vPos.set(co.x, -0.04 * k + 0.28 * Math.sin(Math.min(1, k * 1.6) * Math.PI) * (1 - k), co.z),
+        q, vScl.set(base * (1 + 0.1 * w), base * (1 - 0.45 * w), base * (1 + 0.1 * w)));
+    }
+  }
+
+  function composeHusk(skin, x, z, face, base, sink) {
+    if (skin === 'jelly') {
+      q.setFromAxisAngle(UP, face);
+      m4.compose(vPos.set(x, 0.04 - sink, z), q,
+        vScl.set(base * 1.35, base * 0.18, base * 1.35));
+    } else if (skin === 'monkey') {
+      q.setFromAxisAngle(UP, face + Math.PI);
+      q.multiply(qPitch.setFromAxisAngle(X_AXIS, 1.257));
+      m4.compose(vPos.set(x, -0.15 - sink, z), q, vScl.set(base, base, base));
+    } else {
+      q.setFromAxisAngle(UP, face);
+      q.multiply(qPitch.setFromAxisAngle(Z_AXIS, Math.PI));
+      m4.compose(vPos.set(x, -0.04 - sink, z), q,
+        vScl.set(base * 1.1, base * 0.55, base * 1.1));
+    }
   }
 
   // --- zones (rev 1): the camera and every sim-frame entity ride an offset.
@@ -1234,6 +1442,21 @@ export function createScene(canvas, COVE, MARKET) {
 
   function draw(S, alpha, tSec, dt) {
     const lerp = (a, b) => a + (b - a) * alpha;
+    tSecNow = tSec;
+
+    // WS4 hygiene: birth/staging records expire even if their bodies never
+    // draw (a mass event drain after a paused bot run must not leave a stage
+    // full of ghosts). Records live ENTRANCE_SEC + stagger, then go.
+    if (births.size) {
+      for (const [id, b] of births) {
+        if (b.t0 === null) b.t0 = tSec;
+        else if (tSec - b.t0 > ENTRANCE_SEC + b.stagger + 0.1) births.delete(id);
+      }
+    }
+    if (bossEnt) {
+      bossEnt.age = (bossEnt.age || 0) + dt;
+      if (bossEnt.age > 3) { bossEnt = null; waveWall.visible = false; }
+    }
 
     // --- water: scrolling UVs + vertex bob (§5) ---
     waterTexA.offset.set(tSec * 0.014, tSec * 0.028);
@@ -1382,6 +1605,12 @@ export function createScene(canvas, COVE, MARKET) {
       m4.compose(vPos.set(hx, 0.03, hz), IDENT_Q, vScl.set(2.0, 1, 2.0));
       blobs.setMatrixAt(blobN++, m4);
     }
+    // WS4: the tide's accessory pool (mods are exclusive — at most one fills)
+    const modKind = S.phase === 'TIDE' ? S.tideMod : null;
+    const modIm = modKind === 'bash' ? modBash
+      : modKind === 'evasive' ? modEvasive
+      : modKind === 'split' ? modSplit : null;
+    let modN = 0, starN = 0;
     for (const k in bossMeshes) bossMeshes[k].visible = false;
     for (const c of S.creeps) {
       const cx = lerp(c.px, c.x), cz = lerp(c.pz, c.z);
@@ -1416,17 +1645,62 @@ export function createScene(canvas, COVE, MARKET) {
         if (bm) {
           bm.visible = true;
           const stomp = Math.abs(Math.sin(tSec * 3.2)) * 0.1;
-          bm.position.set(cx, stomp, cz);
-          bm.rotation.y = face;
-          bm.rotation.x = -0.10 * wind + 0.15 * snap;
+          // WS4 STAGED ENTRANCE: the mesh rises from under the fence while the
+          // sim boss already walks underneath — legal because spawnBoss grants
+          // slamCd = secs(2.5) (sim.js), so no slam can land mid-entrance. The
+          // override converges to the live walk by k=1.
+          let entk = 1;
+          if (bossEnt && bossEnt.skin === c.skin) {
+            if (bossEnt.t0 === null) bossEnt.t0 = tSec;
+            const dur = bossEnt.wave ? 1.4 : 1.2;
+            const t = tSec - bossEnt.t0;
+            entk = Math.min(1, t / dur);
+            // staged beats at 0 / 0.4 / 0.8s: rings + spark bursts, shake ramping
+            const beatAt = [0, 0.4, 0.8];
+            while (bossEnt.beats < 3 && t >= beatAt[bossEnt.beats]) {
+              const col = bossEnt.wave ? 0xF2FEFF : 0xE8CFA0;
+              popRing(bossEnt.x, bossEnt.z, col, 1.4 + bossEnt.beats * 0.55);
+              popSparks(bossEnt.x, bossEnt.wave ? 0.9 : 0.5, bossEnt.z, col, 6, 1.3 + bossEnt.beats * 0.25);
+              kick(0.05 + 0.1 * bossEnt.beats);
+              bossEnt.beats++;
+            }
+            if (bossEnt.wave) {
+              // THE WAVE: the foam wall sweeps from the rolled fence to the
+              // boss spot; the boss rises inside the crest (+1 call, 1.4s, once)
+              const OUTB = [[0, -8], [8, 0], [0, 8], [-8, 0]][bossEnt.edge] || [0, -8];
+              waveWall.visible = true;
+              waveWall.position.set(bossEnt.x + OUTB[0] * (1 - entk), 1.6, bossEnt.z + OUTB[1] * (1 - entk));
+              waveWall.rotation.y = bossEnt.edge === 1 ? Math.PI / 2 : bossEnt.edge === 3 ? -Math.PI / 2 : 0;
+              waveWall.material.opacity = Math.sin(entk * Math.PI) * 0.85;
+              waveWall.scale.set(1, 1 + Math.sin(tSec * 9) * 0.06, 1);
+              waveTex.offset.x = tSec * 0.3;
+            }
+            if (entk >= 1) { bossEnt = null; waveWall.visible = false; }
+          }
+          const rise = entk < 1 ? -(bossEnt && bossEnt.wave ? 2.5 : 3.0) * (1 - easeOut3(entk)) : 0;
+          const shake = entk < 1 && c.skin === 'crab' ? Math.sin(tSec * 35) * 0.12 * (1 - entk) : 0;
+          const eWind = entk < 1 ? 0 : wind, eSnap = entk < 1 ? 0 : snap, ePunch = entk < 1 ? 0 : punch;
+          bm.position.set(cx, stomp * entk + rise, cz);
+          bm.rotation.y = face + shake;
+          bm.rotation.x = -0.10 * eWind + 0.15 * eSnap;
           bm.rotation.z = 0;
           const s0 = c.scale || 2.6;
-          const bs = s0 * (1 + snap * 0.40 - wind * 0.05) * (1 + punch * 0.07);
-          const by = s0 * (1 - snap * 0.18 + wind * 0.14) * (1 - punch * 0.07);
+          const bs = s0 * (1 + eSnap * 0.40 - eWind * 0.05) * (1 + ePunch * 0.07);
+          const by = s0 * (1 - eSnap * 0.18 + eWind * 0.14) * (1 - ePunch * 0.07);
           bm.scale.set(bs, by, bs);
           const bb = bm.userData.body;
           const base = bb.userData.baseCol || (bb.userData.baseCol = bb.material.color.clone());
           bb.material.color.copy(c.hitFlash > 0 ? flash : base);
+        }
+        // WS4: a stunned boss wears a star too (stuns land at half on bigs —
+        // when one sticks, say so at boss scale)
+        if (c.stunTicks > 0 && starN < CSTAR_CAP) {
+          const sa = tSec * 4.4 + c.id;
+          q.copy(camera.quaternion).multiply(qPitch.setFromAxisAngle(Z_AXIS, Math.PI / 4 + tSec * 2 + c.id));
+          m4.compose(
+            vPos.set(cx + Math.sin(sa) * 0.7, (c.scale || 2.6) * 1.35 + 0.4, cz + Math.cos(sa) * 0.7),
+            q, vScl.set(1.6, 1.6, 1.6));
+          creepStars.setMatrixAt(starN++, m4);
         }
         if (blobN < BLOB_CAP) {
           const s = (c.scale || 2.6) * 1.4;
@@ -1444,28 +1718,46 @@ export function createScene(canvas, COVE, MARKET) {
         ? 0.22 + Math.sin(tSec * 3.1 + c.bob) * 0.16
         : Math.abs(Math.sin(tSec * 6 + c.bob)) * 0.12;
       const base = c.mini ? 0.62 : 1;
-      // per-skin swing personality: crab claw-snap, jelly rears up, monkey
-      // lunges off a crouch — then the victim punch squashes whatever it is
-      let sx = 1, sy = 1, sz = 1, pitch = 0;
-      if (c.skin === 'jelly') {
-        sy = 1 + 0.38 * wind - 0.26 * snap;
-        sx = sz = 1 - 0.10 * wind + 0.22 * snap;
-        pitch = 0.10 * snap;
-      } else if (c.skin === 'monkey') {
-        sx = sz = 1 + 0.24 * snap;
-        sy = 1 - 0.08 * wind - 0.10 * snap;
-        pitch = -0.20 * wind + 0.26 * snap;
-      } else {
-        sx = 1 - 0.08 * wind + 0.30 * snap;
-        sy = 1 + 0.06 * wind - 0.16 * snap;
-        sz = 1 + 0.10 * snap;
-        pitch = -0.13 * wind + 0.17 * snap;
+
+      // WS4 ENTRANCE: an active birth record owns the transform outright.
+      // Before its stagger the creep is below ground / outside the fence —
+      // hidden IS the theatric. Tints and HP bars stay live throughout (a
+      // nova can greet a landing set); windup/punch poses wait for the end.
+      let entering = false;
+      const b = c.receding ? undefined : births.get(c.id);
+      if (b && b.t0 !== null) {
+        const entK = (tSec - b.t0 - b.stagger) / ENTRANCE_SEC;
+        if (entK >= 1) births.delete(c.id);
+        else if (entK < 0) continue;                 // not through the fence yet
+        else {
+          entering = true;
+          composeEntrance(c, b, entK, cx, cz, hop * base, face, base);
+        }
       }
-      sx *= 1 + 0.14 * punch; sz *= 1 + 0.14 * punch; sy *= 1 - 0.12 * punch;
-      q.setFromAxisAngle(UP, face);
-      if (pitch) q.multiply(qPitch.setFromAxisAngle(X_AXIS, pitch));
-      m4.compose(vPos.set(cx, hop * base, cz), q,
-        vScl.set(base * sx, base * sy, base * sz));
+      if (!entering) {
+        // per-skin swing personality: crab claw-snap, jelly rears up, monkey
+        // lunges off a crouch — then the victim punch squashes whatever it is
+        let sx = 1, sy = 1, sz = 1, pitch = 0;
+        if (c.skin === 'jelly') {
+          sy = 1 + 0.38 * wind - 0.26 * snap;
+          sx = sz = 1 - 0.10 * wind + 0.22 * snap;
+          pitch = 0.10 * snap;
+        } else if (c.skin === 'monkey') {
+          sx = sz = 1 + 0.24 * snap;
+          sy = 1 - 0.08 * wind - 0.10 * snap;
+          pitch = -0.20 * wind + 0.26 * snap;
+        } else {
+          sx = 1 - 0.08 * wind + 0.30 * snap;
+          sy = 1 + 0.06 * wind - 0.16 * snap;
+          sz = 1 + 0.10 * snap;
+          pitch = -0.13 * wind + 0.17 * snap;
+        }
+        sx *= 1 + 0.14 * punch; sz *= 1 + 0.14 * punch; sy *= 1 - 0.12 * punch;
+        q.setFromAxisAngle(UP, face);
+        if (pitch) q.multiply(qPitch.setFromAxisAngle(X_AXIS, pitch));
+        m4.compose(vPos.set(cx, hop * base, cz), q,
+          vScl.set(base * sx, base * sy, base * sz));
+      }
       im.setMatrixAt(i, m4);
       // status tints: hit flash beats stun beats ice beats roots beats white
       im.setColorAt(i, c.hitFlash > 0 ? flash
@@ -1474,40 +1766,138 @@ export function createScene(canvas, COVE, MARKET) {
         : c.rootTicks > 0 ? rootCol : white);
       counts[c.skin] = i + 1;
 
+      if (!entering) {
+        // WS4 mod accessory: the tide's prop rides the creep's own transform
+        // (bash/evasive dress every non-big; the split twin is an honest
+        // telegraph, so minis — which cannot split — never wear it)
+        if (modIm && modN < MOD_CAP && (modKind !== 'split' || !c.mini)) {
+          if (modKind === 'bash') {
+            q.setFromAxisAngle(UP, face);
+            q.multiply(qPitch.setFromAxisAngle(Z_AXIS, Math.sin(tSec * 3 + c.id) * 0.2));
+            m4.compose(vPos.set(cx, hop * base + MOD_Y[c.skin] * base, cz), q,
+              vScl.set(base, base, base));
+            modIm.setMatrixAt(modN++, m4);
+          } else if (modKind === 'evasive') {
+            // flicker at 8Hz, phase-offset per creep — collapsed scale hides it
+            const on = ((tSec * 8 + c.id * 0.37) % 1) < 0.55 ? 1 : 0.001;
+            q.setFromAxisAngle(UP, face);
+            m4.compose(vPos.set(cx, (hop + 0.7) * base, cz), q,
+              vScl.set(base * on, base * on, base * on));
+            modIm.setMatrixAt(modN++, m4);
+          } else {
+            // the budding twin wobbles off the flank
+            const wob = 0.9 + Math.abs(Math.sin(tSec * 5 + c.id)) * 0.3;
+            const fx2 = cx + (0.45 * Math.cos(face) + 0.1 * Math.sin(face)) * base;
+            const fz2 = cz + (-0.45 * Math.sin(face) + 0.1 * Math.cos(face)) * base;
+            q.setFromAxisAngle(UP, face);
+            m4.compose(vPos.set(fx2, (hop + MOD_Y[c.skin] * 0.45) * base, fz2), q,
+              vScl.set(base * wob, base * wob, base * wob));
+            modIm.setMatrixAt(modN++, m4);
+          }
+        }
+        // WS4 creep stun star: one orbiting star per stunned creep — the tint
+        // barely lifts an orange crab (WS3 gotcha); the star closes the grammar
+        if (c.stunTicks > 0 && starN < CSTAR_CAP) {
+          const sa = tSec * 4.4 + c.id;
+          q.copy(camera.quaternion).multiply(qPitch.setFromAxisAngle(Z_AXIS, Math.PI / 4 + tSec * 2 + c.id));
+          m4.compose(
+            vPos.set(cx + Math.sin(sa) * 0.4 * base, CSTAR_Y[c.skin] * base + Math.sin(tSec * 6 + c.id) * 0.06, cz + Math.cos(sa) * 0.4 * base),
+            q, vScl.set(1, 1, 1));
+          creepStars.setMatrixAt(starN++, m4);
+        }
+      }
+
       if (blobN < BLOB_CAP) {
         const s = (c.skin === 'jelly' ? 1.3 : 1.5) * base;
         m4.compose(vPos.set(cx, 0.025, cz), IDENT_Q, vScl.set(s, 1, s));
         blobs.setMatrixAt(blobN++, m4);
       }
     }
-    // --- the corpse beat (WS1): squash flat, tip along facing, sink into the
-    // sand over 0.7s — in the instance slots the live creeps left free.
+    // --- the death spectacle (WS1 slot rules, WS4 per-skin curves): 0.7s of
+    // physical comedy in the instance slots the live creeps left free, ending
+    // exactly on the husk rest pose.
     for (let ci = corpses.length - 1; ci >= 0; ci--) {
       const co = corpses[ci];
       if (co.t0 === null) co.t0 = tSec;
       const k = (tSec - co.t0) / CORPSE_SEC;
-      if (k >= 1) { corpses.splice(ci, 1); continue; }
+      if (k >= 1) {
+        // hand off to the husk: remember mini/face by exact position so the
+        // sim-record-driven body below keeps its scale and heading
+        huskMemo.set(huskKey(co.x, co.z), { mini: co.mini, face: co.face });
+        corpses.splice(ci, 1);
+        continue;
+      }
       const im = creepMeshes[co.skin];
       const i = counts[co.skin];
       if (i >= CREEP_CAP) continue;             // a full square keeps its live slots
-      const base = co.mini ? 0.62 : 1;
-      const squash = Math.min(1, k * 1.8);
-      q.setFromAxisAngle(UP, co.face);
-      q.multiply(qPitch.setFromAxisAngle(X_AXIS, 0.35 * squash));
-      m4.compose(
-        vPos.set(co.x + Math.sin(co.face) * 0.3 * k, -0.62 * k * k, co.z + Math.cos(co.face) * 0.3 * k),
-        q,
-        vScl.set(base * (1 + 0.2 * squash), base * (1 - 0.75 * squash), base * (1 + 0.2 * squash)));
+      composeSpectacle(co, k, co.mini ? 0.62 : 1);
       im.setMatrixAt(i, m4);
       im.setColorAt(i, corpseCol);
       counts[co.skin] = i + 1;
     }
+    // --- WS4 HUSKS: the sim's 6-second corpse ledger, finally on screen —
+    // THE DROWNED TIDE's pantry made visible. One husk per S.corpses record in
+    // the same free slots (live wins: husks draw after every live body, so the
+    // CREEP_CAP skip drops them first). Records matched by a still-animating
+    // spectacle are suppressed so no body draws twice — exact float equality
+    // is safe because both x/z were copied from c.x/c.z in the same sweep.
+    // FIFO eviction, the raise eating the freshest, port/washout clears: all
+    // inherited from the sim for free. No blob shadows (corpses never had
+    // them). The last 0.4s of a record's ttl sinks the husk away.
+    let huskN = 0;
+    if (S.corpses && S.corpses.length) {
+      for (const co of S.corpses) {
+        let animating = false;
+        for (const sp of corpses) {
+          if (sp.x === co.x && sp.z === co.z && sp.skin === co.skin) { animating = true; break; }
+        }
+        if (animating) continue;
+        // a keeling boss keeps its dedicated mesh — suppress the husk under a
+        // live latch of the same skin within 2m (afterwards a boss-sized husk
+        // on the sand is legal, and raisable — a feature, not a bug)
+        if (bossCorpse && bossCorpse.skin === co.skin) {
+          const bm = bossMeshes[co.skin];
+          if (bm && Math.abs(bm.position.x - co.x) < 2 && Math.abs(bm.position.z - co.z) < 2) continue;
+        }
+        const im = creepMeshes[co.skin];
+        if (!im) continue;
+        const i = counts[co.skin];
+        if (i >= CREEP_CAP) continue;
+        const memo = huskMemo.get(huskKey(co.x, co.z));
+        const rem = Math.max(0, (co.until - S.tick) / 20);   // 20 = SIM_HZ
+        composeHusk(co.skin, co.x, co.z,
+          memo ? memo.face : ((co.x * 73 + co.z * 31) % 6.28),
+          memo && memo.mini ? 0.62 : 1,
+          rem < 0.4 ? (1 - rem / 0.4) * (1 - rem / 0.4) * 0.9 : 0);
+        im.setMatrixAt(i, m4);
+        im.setColorAt(i, huskCol);
+        counts[co.skin] = i + 1;
+        huskN++;
+      }
+      // memo hygiene: entries whose sim record died go with it
+      if (huskMemo.size) {
+        for (const key of huskMemo.keys()) {
+          let found = false;
+          for (const co of S.corpses) if (huskKey(co.x, co.z) === key) { found = true; break; }
+          if (!found) huskMemo.delete(key);
+        }
+      }
+    } else if (huskMemo.size) huskMemo.clear();
+    husksDrawn = huskN;
     for (const k in creepMeshes) {
       const im = creepMeshes[k];
       im.count = counts[k];
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
+    // WS4 pool flushes: the tide's one accessory pool + the creep stun stars
+    modBash.count = modIm === modBash ? modN : 0;
+    modEvasive.count = modIm === modEvasive ? modN : 0;
+    modSplit.count = modIm === modSplit ? modN : 0;
+    if (modIm) modIm.instanceMatrix.needsUpdate = true;
+    modPoolCount = modIm ? modN : 0;
+    creepStars.count = starN;
+    if (starN) creepStars.instanceMatrix.needsUpdate = true;
     // a downed boss holds its dedicated mesh for a 1.2s keel-and-sink before
     // it hides; a LIVE boss of the same skin always wins the mesh back
     if (bossCorpse) {
@@ -1533,9 +1923,19 @@ export function createScene(canvas, COVE, MARKET) {
       if (a.kind === 'drowned') {
         if (dn >= DROWNED_CAP) continue;
         const ax = lerp(a.px, a.x) + zoneOff.x, az = lerp(a.pz, a.z) + zoneOff.z;
+        // WS4: the drowned RISE from the sand where the body lay (0.4s + a sand
+        // ring), closing the loop: kill -> husk -> raise -> the crab stands
+        // where the corpse was. Golems keep their instant stomp-in.
+        let rb = drownedBirths.get(a.id);
+        if (rb === undefined) {
+          rb = tSec;
+          drownedBirths.set(a.id, rb);
+          popRing(ax, az, 0xE8CFA0, 0.8);
+        }
+        const rk = Math.min(1, (tSec - rb) / 0.4);
         const hop = Math.abs(Math.sin(tSec * 5.4 + a.id)) * 0.1;
         q.setFromAxisAngle(UP, a.facing);
-        m4.compose(vPos.set(ax, hop, az), q, vScl.set(0.72, 0.72, 0.72));
+        m4.compose(vPos.set(ax, hop * rk - 0.9 * (1 - easeOut3(rk)), az), q, vScl.set(0.72, 0.72, 0.72));
         drownedMesh.setMatrixAt(dn++, m4);
         if (blobN < BLOB_CAP) {
           m4.compose(vPos.set(ax, 0.02, az), IDENT_Q, vScl.set(1.0, 1, 1.0));
@@ -1578,6 +1978,10 @@ export function createScene(canvas, COVE, MARKET) {
     }
     drownedMesh.count = dn;
     drownedMesh.instanceMatrix.needsUpdate = true;
+    // rise-record hygiene: ids are never reused, so stale records just expire
+    if (drownedBirths.size > 12) {
+      for (const [id, t0] of drownedBirths) if (tSec - t0 > 2) drownedBirths.delete(id);
+    }
     blobs.count = blobN;
     blobs.instanceMatrix.needsUpdate = true;
 
@@ -1679,12 +2083,19 @@ export function createScene(canvas, COVE, MARKET) {
     resize, draw, pickGround, worldToScreen, popFoamRing, popRing, markClick, kick,
     setHeroBody, meteorWarn, setVista, setGoldHour, setZone,
     popSparks, pushCorpse, wandFlash,
+    creepBorn, bossEntrance, clearFx,          // WS4 theatrics feeds
     marketAnchor: MK,
     get vistaK() { return vistaK; },
     get goldK() { return goldK; },
     get fxCorpses() { return corpses.length + (bossCorpse ? 1 : 0); },
     get fxSparks() { return sparks.length; },
     get fxSparksDrawn() { return sparkMesh.count; },
+    // WS4 probes — the battery POLLS these, never pixels
+    get fxEntrances() { return births.size; },
+    get fxHusksDrawn() { return husksDrawn; },
+    get fxModPool() { return modPoolCount; },
+    get fxCreepStars() { return creepStars.count; },
+    get fxBossEntranceActive() { return !!bossEnt; },
     paletteTex,
   };
 }
