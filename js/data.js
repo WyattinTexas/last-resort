@@ -1,7 +1,7 @@
 // SURVIVAL QUEST — THE CONTENT. Bodies, spells, items, fruit, modifiers, stalls.
 //
 // Everything here is DATA. The spell "engine" in sim.js is one interpreter over
-// the fx descriptors below — sixteen spells, zero bespoke implementations
+// the fx descriptors below — thirty-eight spells, zero bespoke implementations
 // (spec §2's content cheat code, restated as law in §6 and the P0 goal).
 //
 // Numbers come from spec §6 v0 and are all TUNE-in-graybox. Rank scaling is one
@@ -67,22 +67,31 @@ export const BODIES = [
 ];
 
 // ---------------------------------------------------------------------------
-// SPELLS — the 16 from §6, sold on the boardwalk racks. ONE ENGINE reads these.
+// SPELLS — the 16 from §6 plus the rev-2 WS3 pool, sold on the boardwalk
+// racks. ONE ENGINE reads these.
 //
 // fx types the sim implements ONCE each:
 //   proj    projectiles toward the aim point (count/spread/speed/aoe/slow)
-//   nova    instant damage circle centred on the hero
-//   aoe     instant damage circle at the aim point (slow/root riders)
+//   bolt    a homing missile at the nearest creep (stun/drain riders)
+//   line    a travelling wave that tears down a lane, hits each creep once
+//   nova    instant damage circle centred on the hero (debuff riders too)
+//   aoe     instant damage circle at the aim point (slow/root/stun/debuffs)
 //   chain   instant zap that jumps between nearby creeps
 //   shield  absorb pool on the hero
+//   goldshield  damage burns gold instead of HP (the purse soaks it)
 //   heal    instant self-heal
+//   hide    the tide loses you; swinging or casting blows the cover
 //   dash    reposition toward the aim point
 //   rain    delayed impacts scattered around the aim point (meteors)
-//   buff    timed self-buff (mults + optional shield)
-//   summon  an allied unit that fights beside you
-//   passive equipped-slot stat riders (crit/lifesteal/haste/thorns)
+//   buff    timed self-buff (mults + optional shield + heal-over-time)
+//   summon  allied units that fight beside you (count/fromCorpses variants)
+//   passive equipped-slot stat riders (crit/lifesteal/haste/thorns + the WS3
+//           set: flat-DR, dodge, on-hit poison/cleave/proc/pinch, burn ring,
+//           damage aura, cooldown-rate aura, cheat-death)
 //
 // spc = spellpower coefficient: damage/heal/shield gains sp × spc.
+// Stuns and roots always land at HALF duration on bosses — one rule, stated
+// in every tooltip that stuns or roots.
 // ---------------------------------------------------------------------------
 export const SPELLS = [
   // --- STRIKE (the damage rack) ---
@@ -106,6 +115,26 @@ export const SPELLS = [
     fx: { type: 'chain', jumps: [3, 1], dmg: [60, 24], spc: 0.7, falloff: 0.85, jumpRange: 5 },
     desc: 'A spark that arcs to %1 creeps for %2 damage, fading each jump.',
     vals: (r, sp) => [rv([3, 1], r), Math.round(rv([60, 24], r) + sp * 0.7)] },
+  { id: 'conchcrack', name: 'CONCH CRACK', ico: '🐚⚡', cat: 'STRIKE', tier: 1, kind: 'active', cd: 8,
+    fx: { type: 'bolt', speed: 26, dmg: [70, 26], spc: 0.8, stunSec: 1.3 },
+    desc: 'Crack a conch bolt at the nearest creep: %1 damage and a %2s stun. (Bosses: half stun.)',
+    vals: (r, sp) => [Math.round(rv([70, 26], r) + sp * 0.8), 1.3] },
+  { id: 'sandspout', name: 'SANDSPOUT', ico: '🌪️', cat: 'STRIKE', tier: 1, kind: 'active', cd: 11,
+    fx: { type: 'nova', radius: 2.6, dmg: [50, 20], spc: 0.6, stunSec: [0.8, 0.1] },
+    desc: 'Whip the sand into a spout: %1 damage within %2m and a %3s stun. (Bosses: half stun.)',
+    vals: (r, sp) => [Math.round(rv([50, 20], r) + sp * 0.6), 2.6, rv([0.8, 0.1], r).toFixed(1)] },
+  { id: 'ripcurrent', name: 'RIPCURRENT', ico: '🌊', cat: 'STRIKE', tier: 2, kind: 'active', cd: 9,
+    fx: { type: 'line', speed: 20, dist: 11, width: 1.3, dmg: [85, 30], spc: 0.9 },
+    desc: 'Tear a %2m rip down the lane: %1 damage to every creep it crosses.',
+    vals: (r, sp) => [Math.round(rv([85, 30], r) + sp * 0.9), 11] },
+  { id: 'sirenskiss', name: "SIREN'S KISS", ico: '💋', cat: 'STRIKE', tier: 2, kind: 'active', cd: 9,
+    fx: { type: 'bolt', speed: 26, dmg: [80, 30], spc: 0.9, drainPct: 60 },
+    desc: "Blow a kiss that bites: %1 damage, and %2% of it comes home as healing.",
+    vals: (r, sp) => [Math.round(rv([80, 30], r) + sp * 0.9), 60] },
+  { id: 'crackedshell', name: 'CRACKED SHELL', ico: '🥚', cat: 'STRIKE', tier: 2, kind: 'active', cd: 12,
+    fx: { type: 'aoe', radius: 3.0, dmg: [30, 12], spc: 0.4, vulnPct: [15, 5], vulnSec: 6 },
+    desc: 'Crack every shell in a %2m circle: %1 damage, and they take +%3% damage for 6s.',
+    vals: (r, sp) => [Math.round(rv([30, 12], r) + sp * 0.4), 3, rv([15, 5], r)] },
 
   // --- GUARD (keep the sea off you) ---
   { id: 'bulwark', name: 'BULWARK', ico: '🛡️', cat: 'GUARD', tier: 1, kind: 'active', cd: 14,
@@ -118,12 +147,40 @@ export const SPELLS = [
     vals: (r, sp) => [Math.round(rv([130, 65], r) + sp * 1.0)] },
   { id: 'rootvine', name: 'ROOT VINE', ico: '🌿', cat: 'GUARD', tier: 1, kind: 'active', cd: 10,
     fx: { type: 'aoe', radius: 2.4, dmg: [30, 14], spc: 0.4, rootSec: [1.2, 0.25] },
-    desc: 'Vines erupt in a %2m circle: %1 damage and roots for %3s.',
+    desc: 'Vines erupt in a %2m circle: %1 damage and roots for %3s. (Bosses: half root.)',
     vals: (r, sp) => [Math.round(rv([30, 14], r) + sp * 0.4), 2.4, rv([1.2, 0.25], r).toFixed(1)] },
   { id: 'thornshell', name: 'THORN SHELL', ico: '🦔', cat: 'GUARD', tier: 2, kind: 'passive',
     fx: { type: 'passive', thorns: [14, 7] },
     desc: 'While slotted: attackers take %1 damage per hit.',
     vals: r => [rv([14, 7], r)] },
+  { id: 'barnaclehide', name: 'BARNACLE HIDE', ico: '🪨', cat: 'GUARD', tier: 1, kind: 'passive',
+    fx: { type: 'passive', flatDR: [6, 3] },
+    desc: 'While slotted: swings against you hit for %1 less (they always land at least 1). Slams do not care.',
+    vals: r => [rv([6, 3], r)] },
+  { id: 'crabwalk', name: 'CRABWALK', ico: '🦀', cat: 'GUARD', tier: 1, kind: 'passive',
+    fx: { type: 'passive', dodgePct: [10, 3] },
+    desc: 'While slotted: sidestep %1% of swings outright. Never slams, never meteors.',
+    vals: r => [rv([10, 3], r)] },
+  { id: 'foghorn', name: 'FOGHORN BLAST', ico: '📯', cat: 'GUARD', tier: 1, kind: 'active', cd: 13,
+    fx: { type: 'nova', radius: 3.2, dmg: 0, weakenPct: [20, 5], weakenSec: [5, 0.5] },
+    desc: 'One long blast: creeps within %1m deal %2% less damage for %3s.',
+    vals: r => [3.2, rv([20, 5], r), rv([5, 0.5], r).toFixed(1)] },
+  { id: 'aloesalve', name: 'ALOE SALVE', ico: '🌱', cat: 'GUARD', tier: 1, kind: 'active', cd: 14,
+    fx: { type: 'buff', sec: 8, hotAmount: [150, 70], spc: 1.0 },
+    desc: 'Smear on the salve: restore %1 HP over 8s while you keep fighting.',
+    vals: (r, sp) => [Math.round(rv([150, 70], r) + sp * 1.0)] },
+  { id: 'gullswarm', name: 'GULL SWARM', ico: '🕊️', cat: 'GUARD', tier: 2, kind: 'active', cd: 13,
+    fx: { type: 'aoe', radius: 3.0, dmg: 0, missPct: [25, 5], missSec: 6 },
+    desc: 'Call the gulls down on a %1m circle: creeps there miss %2% of their swings for 6s.',
+    vals: r => [3, rv([25, 5], r)] },
+  { id: 'cowrieward', name: 'COWRIE WARD', ico: '🐚💰', cat: 'GUARD', tier: 2, kind: 'active', cd: 16,
+    fx: { type: 'goldshield', sec: 8, rate: [3, 1] },
+    desc: 'For 8s damage bites your purse, not you: 1 gold soaks %1 damage. Breaks when the purse runs dry.',
+    vals: r => [rv([3, 1], r)] },
+  { id: 'squidink', name: 'SQUID INK', ico: '🦑', cat: 'GUARD', tier: 2, kind: 'active', cd: 18,
+    fx: { type: 'hide', sec: [2.5, 0.5] },
+    desc: 'Vanish in a cloud of ink for %1s — the tide loses you. Swinging or casting blows the cover.',
+    vals: r => [rv([2.5, 0.5], r).toFixed(1)] },
 
   // --- CURRENT (what carries you) ---
   { id: 'crit', name: 'CRIT', ico: '🎯', cat: 'CURRENT', tier: 1, kind: 'passive',
@@ -142,6 +199,34 @@ export const SPELLS = [
     fx: { type: 'dash', dist: [6, 1] },
     desc: 'Vanish %1m toward the cast point. Sheds roots and stuns.',
     vals: r => [rv([6, 1], r)] },
+  { id: 'jellysting', name: 'JELLY STING', ico: '🪼', cat: 'CURRENT', tier: 1, kind: 'passive',
+    fx: { type: 'passive', poisonPerSec: [7, 3], poisonSec: 2, poisonSlowPct: 20 },
+    desc: 'While slotted: your hits smear venom — %1 damage a second and a 20% slow for 2s. Reapplying refreshes it.',
+    vals: r => [rv([7, 3], r)] },
+  { id: 'widewake', name: 'WIDE WAKE', ico: '🌊🪓', cat: 'CURRENT', tier: 1, kind: 'passive',
+    fx: { type: 'passive', cleavePct: [25, 6], cleaveR: 1.7 },
+    desc: 'While slotted: melee swings splash %1% of the damage to creeps within %2m of the victim. Swings only.',
+    vals: r => [rv([25, 6], r), 1.7] },
+  { id: 'emberskin', name: 'EMBER SKIN', ico: '🎇', cat: 'CURRENT', tier: 1, kind: 'passive',
+    fx: { type: 'passive', burnPerSec: [12, 5], burnR: [1.9, 0.15] },
+    desc: 'While slotted: your skin scorches the tide — %1 damage a second to creeps within %2m.',
+    vals: r => [rv([12, 5], r), rv([1.9, 0.15], r).toFixed(1)] },
+  { id: 'tikidrums', name: 'TIKI DRUMS', ico: '🥁', cat: 'CURRENT', tier: 1, kind: 'passive',
+    fx: { type: 'passive', dmgPct: [8, 3] },
+    desc: 'While slotted: the drums carry — +%1% damage for you AND anything you summon.',
+    vals: r => [rv([8, 3], r)] },
+  { id: 'shorebreak', name: 'SHOREBREAK', ico: '💥', cat: 'CURRENT', tier: 2, kind: 'passive',
+    fx: { type: 'passive', procPct: [16, 3], procDmg: [45, 18], procSpc: 0.5, procR: 2.1 },
+    desc: 'While slotted: swings have a %1% chance to break like a wave — %2 damage to everything within %3m of the victim.',
+    vals: (r, sp) => [rv([16, 3], r), Math.round(rv([45, 18], r) + sp * 0.5), 2.1] },
+  { id: 'pinchpoint', name: 'PINCH POINT', ico: '🦞', cat: 'CURRENT', tier: 2, kind: 'passive',
+    fx: { type: 'passive', pinchPct: [10, 2], pinchDmg: [15, 10], pinchSec: 1 },
+    desc: 'While slotted: swings have a %1% chance to pinch — +%2 bonus damage and a 1s stun. (Bosses: half stun.)',
+    vals: r => [rv([10, 2], r), rv([15, 10], r)] },
+  { id: 'tradewinds', name: 'TRADE WINDS', ico: '🍃', cat: 'CURRENT', tier: 2, kind: 'passive',
+    fx: { type: 'passive', cdrPct: [8, 3] },
+    desc: 'While slotted: your cooldowns run %1% faster.',
+    vals: r => [rv([8, 3], r)] },
 
   // --- DEEP (the bigs; R slot; rank cap 3) ---
   { id: 'meteortide', name: 'METEOR TIDE', ico: '☄️', cat: 'DEEP', tier: 'big', kind: 'active', cd: 45,
@@ -156,6 +241,19 @@ export const SPELLS = [
     fx: { type: 'summon', hp: [700, 350], spc: 2.0, dmg: [50, 25], atkS: 0.7, range: 2.0, ms: 5.5, radius: 0.8, sec: 18 },
     desc: 'Raise a %1 HP coral golem that fights for 18s.',
     vals: (r, sp) => [Math.round(rv([700, 350], r) + sp * 2.0)] },
+  { id: 'drownedtide', name: 'THE DROWNED TIDE', ico: '🧟🦀', cat: 'DEEP', tier: 'big', kind: 'active', cd: 50,
+    fx: { type: 'summon', fromCorpses: true, unit: 'drowned', count: [3, 1], hp: [190, 90], spc: 1.2,
+      dmg: [24, 9], atkS: 0.7, range: 1.1, ms: 6.0, radius: 0.5, sec: 15 },
+    desc: 'Raise the drowned from up to %1 fresh corpses: %2 HP crabs that fight for 15s. The sand keeps its dead six seconds — kill first.',
+    vals: (r, sp) => [rv([3, 1], r), Math.round(rv([190, 90], r) + sp * 1.2)] },
+  { id: 'krakengrip', name: "KRAKEN'S GRIP", ico: '🐙', cat: 'DEEP', tier: 'big', kind: 'active', cd: 45,
+    fx: { type: 'aoe', radius: 4.5, dmg: [130, 60], spc: 0.9, rootSec: [2.2, 0.6] },
+    desc: 'The kraken reaches up through a %2m circle: %1 damage and a %3s root. (Bosses: half root.)',
+    vals: (r, sp) => [Math.round(rv([130, 60], r) + sp * 0.9), 4.5, rv([2.2, 0.6], r).toFixed(1)] },
+  { id: 'secondsunrise', name: 'SECOND SUNRISE', ico: '🌅', cat: 'DEEP', tier: 'big', kind: 'passive',
+    fx: { type: 'passive', cheatPct: [30, 10], sleepSec: [90, -15] },
+    desc: "While it sits in R, the first death doesn't take you: flash back to %1% HP, shed the stun, keep fighting. Then it sleeps %2s.",
+    vals: r => [rv([30, 10], r), rv([90, -15], r)] },
 ];
 
 export const SPELL = Object.fromEntries(SPELLS.map(s => [s.id, s]));

@@ -7,7 +7,7 @@
 // What it proves (link 2 battery):
 //   1. The page boots in a real browser with real WebGL.
 //   2. The FORGE gates the run; bodies apply real statlines.
-//   3. The racks sell all 16 spells through ONE engine: buys, locks, slots,
+//   3. The racks sell all 38 spells through ONE engine: buys, locks, slots,
 //      cooldowns, projectiles, shields — all measured in SIM TICKS.
 //   4. Fruit, items, XP->ranks and the 100g Tide Tablet respec all hold the
 //      ledger invariant: gold === start + bounty + clears - spent, every tick.
@@ -227,7 +227,7 @@ const main = async () => {
   ok(t2.gold === 100 + t2.ledger.bounty + t2.ledger.clears - t2.ledger.spent,
     'LEDGER LAW: gold === start + bounty + clears - spent', `gold=${t2.gold}`);
 
-  // --- 4. THE RACKS: one engine, sixteen rows --------------------------
+  // --- 4. THE RACKS: one engine, thirty-eight rows (16 classic + WS3) ---
   console.log('\nRACKS — buys, locks, slots, cooldowns');
   await evalJs('RESORT.setSeed("racks")');
   await evalJs('RESORT.pickBody("magician")');
@@ -838,6 +838,737 @@ const main = async () => {
       purse: cs('purse'), hero: cs('herobox') }; })()`);
   ok(deadBreakUi.attr === 'BREAK' && deadBreakUi.dead && deadBreakUi.purse === 'none' && deadBreakUi.hero === 'none',
     'a DEAD break keeps the shopping chrome dark — the market is for the living', JSON.stringify(deadBreakUi));
+
+  // --- 8.9 WS3 ABILITIES: 38 rows, the new verbs, the rider stack --------
+  // Idiom: seed → pickBody → givePearls → buy/equip → spawn/poke → tick →
+  // assert EXACT numbers. Two page-side lab helpers keep every check clean:
+  // __ws3jump poses a run at any tide (the tide-jump recipe), __ws3arm
+  // freezes the spawner + the clear check so the lab owns the sand.
+  console.log('\nWS3 ABILITIES — thirty-eight rows, one engine, the new verbs');
+  await evalJs('RESORT.pause(true)');
+  await evalJs(`window.__ws3jump = (seed, body, tideN) => {
+    RESORT.setSeed(seed);
+    RESORT.pickBody(body);
+    RESORT.givePearls(60);
+    RESORT.giveGold(9000);
+    const S = RESORT.state;
+    S.tide = tideN - 1; S.cleared = tideN - 1; S.phase = 'BREAK'; S.phaseTicks = 30;
+    return S;
+  };
+  window.__ws3arm = () => {
+    const S = RESORT.state;
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S.quota = 9999; S.spawned = 9999;
+    for (const c of S.creeps) { c.dead = true; c.receded = true; }
+    RESORT.runTicks(1);
+    return S.tick;
+  }; 1`);
+
+  // pool integrity: 38 rows, per-rack 10/11/11/6, every tooltip resolves its
+  // %N at every rank and spellpower — the "numbers stated plainly" law
+  const pool = await evalJs(`(()=>{
+    const SP = RESORT.content.SPELLS;
+    const counts = {};
+    for (const s of SP) counts[s.cat] = (counts[s.cat] || 0) + 1;
+    const unresolved = [];
+    for (const s of SP) {
+      const cap = s.tier === 'big' ? 3 : 5;
+      for (let r = 1; r <= cap; r++) {
+        for (const sp of [0, 50]) {
+          const vals = s.vals ? s.vals(r, sp) : [];
+          const txt = RESORT.tf.apply(null, [RESORT.TXT(s.desc)].concat(vals));
+          if (/%\\d/.test(txt)) unresolved.push(s.id + '@r' + r);
+        }
+      }
+    }
+    return { n: SP.length, counts, unresolved: unresolved.slice(0, 4) };
+  })()`);
+  ok(pool.n === 38, 'the pool holds THIRTY-EIGHT rows', `n=${pool.n}`);
+  ok(pool.counts.STRIKE === 10 && pool.counts.GUARD === 11 && pool.counts.CURRENT === 11 && pool.counts.DEEP === 6,
+    'racks balance 10 / 11 / 11 / 6 — browsable, no fifth rack', JSON.stringify(pool.counts));
+  ok(pool.unresolved.length === 0, 'every desc resolves every %N at every rank and spellpower (tooltip law, automated)',
+    pool.unresolved.join(',') || 'clean');
+
+  // the STRIKE rack renders all ten rows through spellRow (walk-up proof)
+  await evalJs('RESORT.setSeed("ws3-rack")');
+  await evalJs('RESORT.pickBody("wrestler")');
+  await evalJs('RESORT.state.hero.x = -18; RESORT.state.hero.z = 3; 1');
+  const rackRows = await evalJs(`(async()=>{
+    for (let i = 0; i < 40; i++) {
+      if (document.getElementById('sheet').classList.contains('show')
+        && document.querySelectorAll('#sheet-rows .srow').length) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return document.querySelectorAll('#sheet-rows .srow').length; })()`);
+  ok(rackRows === 10, 'the STRIKE rack renders all TEN rows through spellRow', `rows=${rackRows}`);
+  await evalJs('RESORT.state.hero.x = 0; RESORT.state.hero.z = -14; 1');
+
+  // V1 bolt: CONCH CRACK — homing spell missile, stun rider, boss half-rule,
+  // and the no-target refusal that spends nothing
+  const bolt = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-bolt', 'wrestler', 2);
+    RESORT.buySpell('conchcrack');
+    __ws3arm();
+    const refuse = RESORT.cast('Q', 0, -8);
+    const cdAfterRefuse = S.cds.conchcrack || 0;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = S.hero.x; c.z = S.hero.z - 8; c.px = c.x; c.pz = c.z;
+    c.hp = c.maxHp = 5000;
+    const cast = RESORT.cast('Q', c.x, c.z);
+    const isBolt = S.projs.length === 1 && S.projs[0].kind === 'bolt';
+    let flight = 0;
+    while (S.projs.length && flight++ < 40) RESORT.runTicks(1);
+    const dmg = 5000 - c.hp;
+    const stunAtConnect = c.stunTicks;
+    S.hero.x = 20; S.hero.z = 8; S.hero.px = 20; S.hero.pz = 8;
+    const px0 = c.x, pz0 = c.z;
+    RESORT.runTicks(15);
+    const movedStunned = Math.hypot(c.x - px0, c.z - pz0);
+    RESORT.runTicks(40);
+    const movedAfter = Math.hypot(c.x - px0, c.z - pz0);
+    RESORT.spawn(1, 'crab');
+    const b = S.creeps.find(x => x.id !== c.id && !x.dead);
+    b.big = true; b.x = 20; b.z = 0; b.px = 20; b.pz = 0; b.hp = b.maxHp = 90000;
+    S.cds.conchcrack = 0;
+    RESORT.cast('Q', b.x, b.z);
+    let g = 0;
+    while (S.projs.length && g++ < 40) RESORT.runTicks(1);
+    return { refuse: refuse.why, cdAfterRefuse, castOk: cast.ok, isBolt, flight, dmg,
+      stunAtConnect, movedStunned, movedAfter, bigStun: b.stunTicks };
+  })()`);
+  ok(bolt.refuse === 'target' && bolt.cdAfterRefuse === 0,
+    'a bolt over empty sand refuses (why:target) and spends NO cooldown', JSON.stringify([bolt.refuse, bolt.cdAfterRefuse]));
+  ok(bolt.castOk && bolt.isBolt && bolt.flight >= 2,
+    "CONCH CRACK flies as kind:'bolt' with real travel time", `flight=${bolt.flight} ticks`);
+  ok(bolt.dmg === 70, 'bolt damage lands on connect, formula-exact (70 at r1, sp 0)', `dmg=${bolt.dmg}`);
+  ok(bolt.stunAtConnect === 26, 'the stun rider lands secs(1.3) = 26 ticks', `stun=${bolt.stunAtConnect}`);
+  ok(bolt.movedStunned === 0 && bolt.movedAfter > 0.5,
+    'a stunned creep neither moves nor swings, then marches again when it wears off',
+    `during=${bolt.movedStunned.toFixed(2)} after=${bolt.movedAfter.toFixed(2)}`);
+  ok(bolt.bigStun === 13, 'bosses take HALF stun: secs(0.65) = 13 ticks', `big=${bolt.bigStun}`);
+
+  // bolt drain rider: SIREN'S KISS heals exactly 60% of the connect
+  const drain = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-drain', 'wrestler', 7);
+    RESORT.buySpell('sirenskiss');
+    __ws3arm();
+    const slot = ['Q','W','E'].find(k => S.slots[k] === 'sirenskiss');
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = S.hero.x; c.z = S.hero.z - 8; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 9000;
+    S.hero.regen = 0; S.hero.hp = 300;
+    RESORT.cast(slot, c.x, c.z);
+    let g = 0;
+    while (S.projs.length && g++ < 40) RESORT.runTicks(1);
+    return { dmg: 9000 - c.hp, hp: S.hero.hp };
+  })()`);
+  ok(drain.dmg === 80 && drain.hp === 348,
+    "SIREN'S KISS: 80 on connect and exactly round(80 × 60%) = 48 comes home", `dmg=${drain.dmg} hp=${drain.hp}`);
+
+  // V2 line: RIPCURRENT survives every body, hits each creep exactly once,
+  // dies only at full distance
+  const line = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-line', 'wrestler', 7);
+    RESORT.buySpell('ripcurrent');
+    __ws3arm();
+    const slot = ['Q','W','E'].find(k => S.slots[k] === 'ripcurrent');
+    const h = S.hero;
+    RESORT.spawn(3, 'crab');
+    const cs = S.creeps.filter(x => !x.dead);
+    for (let i = 0; i < 3; i++) {
+      const c = cs[i];
+      c.x = h.x; c.z = h.z - 4 - i * 2.5; c.px = c.x; c.pz = c.z;
+      c.hp = c.maxHp = 9000;
+    }
+    RESORT.order(h.x, h.z + 18);
+    const r = RESORT.cast(slot, h.x, h.z - 10);
+    const lineUp = S.projs.length === 1 && S.projs[0].kind === 'line';
+    const proj = S.projs[0];
+    RESORT.runTicks(6);
+    const aliveMid = !proj.dead;
+    const hitsMid = proj.hit.length;
+    RESORT.runTicks(10);
+    const aliveEnd = S.projs.length;
+    const deltas = cs.map(c => 9000 - c.hp);
+    return { ok: r.ok, lineUp, aliveMid, hitsMid, aliveEnd, deltas };
+  })()`);
+  ok(line.ok && line.lineUp, "RIPCURRENT rides S.projs as kind:'line'");
+  ok(line.aliveMid && line.hitsMid >= 1, 'the tear SURVIVES its first body — a line never dies on contact', `hits@6t=${line.hitsMid}`);
+  ok(line.aliveEnd === 0, 'and dies only at its full 11m');
+  ok(line.deltas.every(d => d === 85), 'every creep in the lane is torn exactly once for 85 (r1, sp 0)', JSON.stringify(line.deltas));
+
+  // V4 vuln: CRACKED SHELL amplifies EVERYTHING that follows
+  const vuln = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-vuln', 'wrestler', 7);
+    RESORT.buySpell('crackedshell');
+    RESORT.buySpell('fireball');
+    __ws3arm();
+    const h = S.hero;
+    const shellSlot = ['Q','W','E'].find(k => S.slots[k] === 'crackedshell');
+    const fbSlot = ['Q','W','E'].find(k => S.slots[k] === 'fireball');
+    RESORT.spawn(2, 'crab');
+    const cs = S.creeps.filter(x => !x.dead);
+    const A = cs[0], B = cs[1];
+    A.x = h.x; A.z = h.z - 9; A.px = A.x; A.pz = A.z; A.hp = A.maxHp = 9000;
+    B.x = h.x - 14; B.z = h.z - 9; B.px = B.x; B.pz = B.z; B.hp = B.maxHp = 9000;
+    A.rootTicks = 9999; B.rootTicks = 9999;
+    RESORT.cast(shellSlot, A.x, A.z);
+    const aAfterShell = A.hp;
+    const vulnOn = A.vulnTicks > 0 && A.vulnPct === 15;
+    RESORT.cast(fbSlot, A.x, A.z);
+    let g = 0;
+    while (S.projs.length && g++ < 40) RESORT.runTicks(1);
+    const dA = aAfterShell - A.hp;
+    S.cds.fireball = 0;
+    const b0 = B.hp;
+    RESORT.cast(fbSlot, B.x, B.z);
+    g = 0;
+    while (S.projs.length && g++ < 40) RESORT.runTicks(1);
+    const dB = b0 - B.hp;
+    return { vulnOn, shellDmg: 9000 - aAfterShell, dA, dB };
+  })()`);
+  ok(vuln.vulnOn && vuln.shellDmg === 30,
+    'CRACKED SHELL lands its own 30 (unamplified) and the +15% vulnerability', JSON.stringify([vuln.shellDmg, vuln.vulnOn]));
+  ok(vuln.dA === 86 && vuln.dB === 75,
+    'FIREBALL then hits the cracked creep for round(75 × 1.15) = 86 vs 75 on the control', `${vuln.dA} vs ${vuln.dB}`);
+
+  // V4 weaken: FOGHORN BLAST — riders only, zero hit events, soft swings
+  const weak = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-weak', 'wrestler', 2);
+    RESORT.buySpell('foghorn');
+    __ws3arm();
+    const h = S.hero;
+    const slot = ['Q','W','E'].find(k => S.slots[k] === 'foghorn');
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z;
+    c.hp = c.maxHp = 90000; c.atkCd = 6;
+    h.regen = 0;
+    S.events.length = 0;
+    RESORT.cast(slot, h.x, h.z);
+    const spellHits = S.events.filter(e => e.type === 'hit' && e.kind === 'spell').length;
+    const weakOn = c.weakenTicks > 0 && c.weakenPct === 20;
+    const hp0 = h.hp;
+    let g = 0;
+    while (h.hp === hp0 && g++ < 60) RESORT.runTicks(1);
+    return { spellHits, weakOn, drop: hp0 - h.hp, base: c.dmg };
+  })()`);
+  ok(weak.spellHits === 0 && weak.weakOn,
+    'FOGHORN is riders-only: −20% applied, ZERO hit events from the 0-damage nova');
+  ok(weak.drop === Math.max(1, Math.round(weak.base * 0.8)),
+    'a weakened swing lands soft: round(dmg × 0.8) exactly', `drop=${weak.drop} base=${weak.base}`);
+
+  // V4 miss (+ the SANDSPOUT stun nova): a 100% miss debuff whiffs everything
+  const miss = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-miss', 'wrestler', 2);
+    __ws3arm();
+    const h = S.hero;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000;
+    c.missTicks = 9999; c.missPct = 100;
+    h.regen = 0;
+    S.events.length = 0;
+    const hp0 = h.hp;
+    RESORT.runTicks(80);
+    const dodges = S.events.filter(e => e.type === 'dodge').length;
+    const flat = h.hp === hp0;
+    RESORT.buySpell('sandspout');
+    const sSlot = ['Q','W','E'].find(k => S.slots[k] === 'sandspout');
+    RESORT.cast(sSlot, h.x, h.z);
+    return { flat, dodges, spoutStun: c.stunTicks, spoutDmg: 90000 - c.hp };
+  })()`);
+  ok(miss.flat && miss.dodges >= 2,
+    'a 100% miss debuff: every swing whiffs — hp flat, MISS floats born', `dodges=${miss.dodges}`);
+  ok(miss.spoutStun === 16 && miss.spoutDmg >= 50,
+    'SANDSPOUT stuns its whole circle: secs(0.8) = 16 ticks + 50 damage', `stun=${miss.spoutStun}`);
+
+  // V5 poison: JELLY STING — venom in 0.5s chunks, tick-exact totals, a slow,
+  // and a DoT kill that pays like any kill (bounty + corpse)
+  const poison = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-poison', 'wrestler', 2);
+    RESORT.buySpell('jellysting');
+    __ws3arm();
+    const h = S.hero;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x; c.z = h.z - 2; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 9000;
+    RESORT.runTicks(1);
+    const afterSwing = c.hp;
+    const dot = { ticks: c.dotTicks, rate: c.dotPerSec, slow: c.slowTicks > 0 && c.slowMult === 0.8 };
+    h.x = 20; h.z = 8; h.px = 20; h.pz = 8;
+    const seq = [];
+    let prev = c.hp;
+    for (let i = 0; i < 45; i++) {
+      RESORT.runTicks(1);
+      if (c.hp !== prev) { seq.push(prev - c.hp); prev = c.hp; }
+    }
+    RESORT.spawn(1, 'crab');
+    const v = S.creeps.find(x => !x.dead && x.id !== c.id);
+    v.x = 20; v.z = 6.8; v.px = v.x; v.pz = v.z; v.hp = v.maxHp = 500;
+    let g = 0;
+    while (!v.dotTicks && g++ < 40) RESORT.runTicks(1);
+    h.x = -20; h.z = 8; h.px = -20; h.pz = 8;
+    v.hp = 2;
+    const gold0 = S.gold, corpses0 = S.corpses.length, kills0 = S.kills;
+    g = 0;
+    while (S.creeps.some(x => x.id === v.id) && g++ < 30) RESORT.runTicks(1);
+    return { swung: afterSwing === 9000 - 60, dot, seq,
+      kill: { gold: S.gold > gold0, corpses: S.corpses.length > corpses0, kills: S.kills - kills0 } };
+  })()`);
+  ok(poison.swung && poison.dot.ticks === 39 && poison.dot.rate === 7 && poison.dot.slow,
+    'one swing smears the venom: 2s clock (applied mid-tick: 39 seen), 7/s, the 20% slow riding along', JSON.stringify(poison.dot));
+  ok(poison.seq.length === 4 && poison.seq.reduce((a, b) => a + b, 0) === 14,
+    'the venom lands in four 0.5s chunks totalling a tick-exact 14 (7/s × 2s)', JSON.stringify(poison.seq));
+  ok(poison.kill.kills === 1 && poison.kill.gold && poison.kill.corpses,
+    'a DoT kill still pays: bounty, kill count, corpse');
+
+  // V5 cleave: WIDE WAKE splashes exactly 25% — melee only
+  const cleave = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-cleave', 'wrestler', 2);
+    RESORT.buySpell('widewake');
+    __ws3arm();
+    const h = S.hero;
+    RESORT.spawn(2, 'crab');
+    const cs = S.creeps.filter(x => !x.dead);
+    const A = cs[0], B = cs[1];
+    A.x = h.x; A.z = h.z - 2; A.px = A.x; A.pz = A.z; A.hp = A.maxHp = 9000;
+    B.x = h.x + 1.2; B.z = h.z - 2; B.px = B.x; B.pz = B.z; B.hp = B.maxHp = 9000;
+    RESORT.runTicks(1);
+    return { dA: 9000 - A.hp, dB: 9000 - B.hp };
+  })()`);
+  ok(cleave.dA === 60 && cleave.dB === 15,
+    'WIDE WAKE: the victim takes the swing (60), the neighbour exactly 25% splash (15)', JSON.stringify(cleave));
+
+  // ...and the wand DOES poison but NEVER cleaves (tooltips say "swings")
+  const wand = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-wand', 'magician', 2);
+    RESORT.buySpell('widewake');
+    RESORT.buySpell('jellysting');
+    __ws3arm();
+    const h = S.hero;
+    RESORT.spawn(2, 'crab');
+    const cs = S.creeps.filter(x => !x.dead);
+    const A = cs[0], B = cs[1];
+    A.x = h.x; A.z = h.z - 5; A.px = A.x; A.pz = A.z; A.hp = A.maxHp = 9000;
+    B.x = h.x + 1.2; B.z = h.z - 5; B.px = B.x; B.pz = B.z; B.hp = B.maxHp = 9000;
+    A.rootTicks = 9999; B.rootTicks = 9999;
+    let g = 0;
+    while (A.hp === 9000 && g++ < 40) RESORT.runTicks(1);
+    return { dA: 9000 - A.hp, dB: 9000 - B.hp, venom: A.dotTicks > 0 };
+  })()`);
+  ok(wand.dA === 34 && wand.venom && wand.dB === 0,
+    'the wand connect smears venom but NEVER cleaves — the melee-only law', JSON.stringify(wand));
+
+  // V5 procs: SHOREBREAK + PINCH POINT at cap — exact stats, both fire, the
+  // pinch stun actually holds a creep
+  const procs = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-procs', 'wrestler', 7);
+    RESORT.buySpell('shorebreak');
+    RESORT.buySpell('pinchpoint');
+    RESORT.giveXp(60000);
+    for (let i = 0; i < 4; i++) { RESORT.rankUp('shorebreak'); RESORT.rankUp('pinchpoint'); }
+    __ws3arm();
+    const h = S.hero;
+    RESORT.spawn(2, 'crab');
+    const cs = S.creeps.filter(x => !x.dead);
+    cs[0].x = h.x; cs[0].z = h.z - 2; cs[1].x = h.x + 1.0; cs[1].z = h.z - 2;
+    for (const c of cs) { c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 900000; }
+    S.events.length = 0;
+    let sawAoe = 0, sawStun = 0, maxStun = 0;
+    for (let i = 0; i < 600; i++) {
+      RESORT.runTicks(1);
+      for (const c of cs) maxStun = Math.max(maxStun, c.stunTicks);
+      if (i % 50 === 0) {
+        sawAoe += S.events.filter(e => e.type === 'aoe_hit' && e.cat === 'CURRENT').length;
+        sawStun += S.events.filter(e => e.type === 'proj_hit' && e.stun).length;
+        S.events.length = 0;
+        h.hp = h.maxHp;
+      }
+    }
+    sawAoe += S.events.filter(e => e.type === 'aoe_hit' && e.cat === 'CURRENT').length;
+    sawStun += S.events.filter(e => e.type === 'proj_hit' && e.stun).length;
+    return { stats: [h.procPct, h.procDmg, h.pinchPct, h.pinchDmg], sawAoe, sawStun, maxStun };
+  })()`);
+  ok(procs.stats.join(',') === '28,117,18,55',
+    'SHOREBREAK/PINCH cap stats recompute exactly (28% / 117 · 18% / +55)', procs.stats.join(','));
+  ok(procs.sawAoe >= 1 && procs.sawStun >= 1 && procs.maxStun === 19,
+    'both procs FIRED over 600 ticks and the pinch stun held (secs(1) applied mid-tick = 19 seen)',
+    `aoe=${procs.sawAoe} stun=${procs.sawStun} maxStun=${procs.maxStun}`);
+
+  // V6 flat-DR: BARNACLE HIDE — exact reduction, the floor, slams bypass
+  const dr = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-dr', 'wrestler', 2);
+    RESORT.buySpell('barnaclehide');
+    __ws3arm();
+    const h = S.hero;
+    h.regen = 0;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 900000;
+    const hp0 = h.hp;
+    let g = 0;
+    while (h.hp === hp0 && g++ < 60) RESORT.runTicks(1);
+    const drop1 = hp0 - h.hp;
+    RESORT.giveXp(60000);
+    for (let i = 0; i < 4; i++) RESORT.rankUp('barnaclehide');
+    h.regen = 0;
+    const hp1 = h.hp;
+    g = 0;
+    while (h.hp === hp1 && g++ < 60) RESORT.runTicks(1);
+    const drop2 = hp1 - h.hp;
+    const hp2 = h.hp;
+    S.pendings.push({ due: S.tick + 1, x: h.x, z: h.z, r: 3, dmg: 100, side: 'hostile' });
+    RESORT.runTicks(2);
+    return { base: c.dmg, drop1, drop2, slamDrop: hp2 - h.hp };
+  })()`);
+  ok(dr.drop1 === Math.max(1, dr.base - 6),
+    'BARNACLE r1: every swing lands base − 6', `${dr.base} -> ${dr.drop1}`);
+  ok(dr.drop2 === 1, 'at cap (−18) the floor holds: a swing always lands at least 1', `drop=${dr.drop2}`);
+  ok(dr.slamDrop === 100, 'a slam (attacker-null) BYPASSES the hide — the tooltip says "swings"', `slam=${dr.slamDrop}`);
+
+  // V6 dodge: CRABWALK — whiffs happen, and a dodged swing takes NO thorns
+  const dodge = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-dodge', 'wrestler', 7);
+    RESORT.buySpell('crabwalk');
+    RESORT.buySpell('thornshell');
+    RESORT.giveXp(60000);
+    for (let i = 0; i < 4; i++) RESORT.rankUp('crabwalk');
+    __ws3arm();
+    const h = S.hero;
+    h.regen = 0;
+    h.atkCd = 99999;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 900000;
+    S.events.length = 0;
+    const chp0 = c.hp;
+    RESORT.runTicks(700);
+    const dodges = S.events.filter(e => e.type === 'dodge').length;
+    const hits = S.events.filter(e => e.type === 'hero_hit').length;
+    return { dodges, hits, thornDmg: chp0 - c.hp };
+  })()`);
+  ok(dodge.dodges >= 2 && dodge.hits >= 2,
+    'CRABWALK at cap (22%): some swings whiff, some land', `dodge=${dodge.dodges} hit=${dodge.hits}`);
+  ok(dodge.thornDmg === dodge.hits * 14,
+    'THORN SHELL answers ONLY the swings that landed — a dodged swing takes no thorns',
+    `${dodge.thornDmg} = ${dodge.hits} × 14`);
+
+  // V7 HoT: ALOE SALVE — tick-exact restore riding the regen accumulator
+  const hot = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-hot', 'wrestler', 2);
+    RESORT.buySpell('aloesalve');
+    __ws3arm();
+    const h = S.hero;
+    h.hp = 300;
+    const slot = ['Q','W','E'].find(k => S.slots[k] === 'aloesalve');
+    RESORT.cast(slot, h.x, h.z);
+    h.regen = 0;
+    RESORT.runTicks(80);
+    const mid = h.hp;
+    RESORT.runTicks(79);
+    return { mid, end: h.hp };
+  })()`);
+  ok(hot.mid === 375, 'ALOE at half duration: floor(80 × 150/160) = 75 in, hp 375 exactly', `mid=${hot.mid}`);
+  ok(hot.end === 449, 'the full salve delivers its tick-exact sum (149 by the last hot tick — engine fencepost)', `end=${hot.end}`);
+
+  // V7 gold-burn: COWRIE WARD — the purse soaks, the ledger law holds, the
+  // ward breaks at a dry purse and hp takes exactly the remainder
+  const cowrie = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-cowrie', 'wrestler', 7);
+    RESORT.buySpell('cowrieward');
+    __ws3arm();
+    const h = S.hero;
+    let buys = 0;
+    while (S.gold >= 180 && buys < 200) { RESORT.buyFruit(['mango', 'starfruit', 'coconut'][buys % 3], false); buys++; }
+    h.regen = 0;
+    const slot = ['Q','W','E'].find(k => S.slots[k] === 'cowrieward');
+    RESORT.cast(slot, h.x, h.z);
+    const hp0 = h.hp, gold0 = S.gold, spent0 = S.ledger.spent;
+    S.pendings.push({ due: S.tick + 1, x: h.x, z: h.z, r: 3, dmg: 100, side: 'hostile' });
+    RESORT.runTicks(2);
+    const soak = { hpFlat: h.hp === hp0, goldDelta: gold0 - S.gold, spentDelta: S.ledger.spent - spent0 };
+    const G2 = S.gold, hpB = h.hp;
+    S.pendings.push({ due: S.tick + 1, x: h.x, z: h.z, r: 3, dmg: 1000, side: 'hostile' });
+    RESORT.runTicks(2);
+    const law = S.gold === 100 + 9000 + S.ledger.bounty + S.ledger.clears - S.ledger.spent;
+    return { soak, G2, gold2: S.gold, hpLoss: hpB - h.hp, law };
+  })()`);
+  ok(cowrie.soak.hpFlat && cowrie.soak.goldDelta === 34 && cowrie.soak.spentDelta === 34,
+    'COWRIE WARD soaks a 100 slam whole: hp untouched, ceil(100/3) = 34g into ledger.spent', JSON.stringify(cowrie.soak));
+  ok(cowrie.gold2 === 0 && cowrie.hpLoss === 1000 - cowrie.G2 * 3,
+    'the ward BREAKS at a dry purse and hp takes exactly the remainder', `purse=${cowrie.G2} hpLoss=${cowrie.hpLoss}`);
+  ok(cowrie.law, 'THE LEDGER LAW holds through the whole burn — by construction');
+
+  // V7 hide: SQUID INK — the tide cannot find you; your own swing blows it
+  const ink = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-ink', 'wrestler', 7);
+    RESORT.buySpell('squidink');
+    __ws3arm();
+    const h = S.hero;
+    h.regen = 0;
+    h.x = 6; h.z = -6; h.px = 6; h.pz = -6;
+    h.atkCd = 200;
+    const slot = ['Q','W','E'].find(k => S.slots[k] === 'squidink');
+    RESORT.spawn(3, 'crab');
+    const cs = S.creeps.filter(x => !x.dead);
+    for (const c of cs) { c.x = h.x + 1.2; c.z = h.z; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000; }
+    RESORT.cast(slot, h.x, h.z);
+    const hidden0 = h.hideTicks;
+    const hp0 = h.hp;
+    RESORT.runTicks(45);
+    const flat = h.hp === hp0;
+    const nearest = Math.min.apply(null, cs.map(c => Math.hypot(c.x - h.x, c.z - h.z)));
+    h.atkCd = 0;
+    let g = 0;
+    while (h.hideTicks > 0 && g++ < 20) RESORT.runTicks(1);
+    return { hidden0, flat, nearest, coverBlown: h.hideTicks === 0 };
+  })()`);
+  ok(ink.hidden0 === 50, 'SQUID INK: 2.5s of cover at r1 (50 ticks)');
+  ok(ink.flat && ink.nearest > 2,
+    'while hidden the tide CANNOT find you: zero swings land, the pack drifts off you',
+    `nearest=${ink.nearest.toFixed(1)}m`);
+  ok(ink.coverBlown, "the hero's own swing blows the cover");
+
+  // V8 cdr aura: TRADE WINDS × ENCORE compose exactly
+  const winds = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-winds', 'magician', 7);
+    RESORT.buySpell('tradewinds');
+    RESORT.buySpell('fireball');
+    __ws3arm();
+    const cdm = S.hero.cdMult;
+    const fbSlot = ['Q','W','E'].find(k => S.slots[k] === 'fireball');
+    RESORT.cast(fbSlot, 0, -8);
+    return { match: Math.abs(cdm - 0.85 * 0.92) < 1e-12, cdm, charged: S.cds.fireball };
+  })()`);
+  ok(winds.match, 'TRADE WINDS × ENCORE compose: cdMult = 0.85 × 0.92 exactly', `cdMult=${winds.cdm}`);
+  ok(winds.charged === 78, "FIREBALL charges round(100 × 0.782) = 78 ticks — the HUD reads the same cdMult", `cd=${winds.charged}`);
+
+  // V8 dmg aura: TIKI DRUMS feeds the hero AND the golem
+  const tiki = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-tiki', 'wrestler', 8);
+    RESORT.buySpell('tikidrums');
+    RESORT.buySpell('reefgolem');
+    __ws3arm();
+    const h = S.hero;
+    const heroDmg = h.dmg;
+    RESORT.cast('R', h.x + 3, h.z);
+    const g = S.allies[0];
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = g.x; c.z = g.z - 1.5; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000;
+    c.rootTicks = 9999;
+    h.x = -20; h.z = 8; h.px = -20; h.pz = 8; h.atkCd = 9999;
+    let t = 0;
+    while (c.hp === 90000 && t++ < 60) RESORT.runTicks(1);
+    return { heroDmg, golemHit: 90000 - c.hp, golemBase: g.dmg, kind: g.kind, src: g.src };
+  })()`);
+  ok(tiki.heroDmg === 65, 'TIKI DRUMS raises the hero: round(60 × 1.08) = 65', `dmg=${tiki.heroDmg}`);
+  ok(tiki.golemHit === 54 && tiki.golemBase === 50,
+    'and the golem swings for round(50 × 1.08) = 54 — the aura feeds the summons', `hit=${tiki.golemHit}`);
+  ok(tiki.kind === 'golem' && tiki.src === 'reefgolem', 'allies carry their kind/src tags (the WS3 summon lanes)');
+
+  // V5 burn ring: EMBER SKIN pulses on the half-second, sleeps on breaks
+  const ember = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-ember', 'wrestler', 2);
+    RESORT.buySpell('emberskin');
+    __ws3arm();
+    const h = S.hero;
+    h.stun = 99999;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x + 1.5; c.z = h.z; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000;
+    c.rootTicks = 99999;
+    const drops = [];
+    let prev = c.hp;
+    for (let i = 0; i < 25; i++) {
+      RESORT.runTicks(1);
+      if (c.hp !== prev) { drops.push(i); prev = c.hp; }
+    }
+    const perPulse = drops.length ? (90000 - c.hp) / drops.length : 0;
+    const phase0 = S.phase;
+    S.phase = 'BREAK'; S.phaseTicks = 99999;
+    const hpB = c.hp;
+    RESORT.runTicks(30);
+    const burnedInBreak = hpB - c.hp;
+    S.phase = phase0; S.phaseTicks = 0;
+    return { pulses: drops.length, gap: drops.length >= 2 ? drops[1] - drops[0] : 0, perPulse, burnedInBreak };
+  })()`);
+  ok(ember.pulses >= 2 && ember.gap === 10 && ember.perPulse === 6,
+    'EMBER SKIN pulses every half-second for round(12/2) = 6 — zero swings involved',
+    `pulses=${ember.pulses} gap=${ember.gap} per=${ember.perPulse}`);
+  ok(ember.burnedInBreak === 0, 'the ring sleeps outside the tide — nothing burns on a break');
+
+  // V9 corpses: born on kills, expire at 6s, FIFO cap 16, cleared by the
+  // port AND the washout (zone-local debris law)
+  const corpse = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-corpse', 'wrestler', 2);
+    __ws3arm();
+    const h = S.hero;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = h.x; c.z = h.z - 2; c.px = c.x; c.pz = c.z; c.hp = 1;
+    let g = 0;
+    while (!S.corpses.length && g++ < 60) RESORT.runTicks(1);
+    const rec = S.corpses[0];
+    const born = S.corpses.length === 1 && !!rec && typeof rec.x === 'number' && rec.skin === 'crab' && rec.until > S.tick;
+    RESORT.runTicks(121);
+    const expired = S.corpses.length === 0;
+    RESORT.buySpell('spinslash');
+    const slot = ['Q','W','E'].find(k => S.slots[k] === 'spinslash');
+    RESORT.spawn(25, 'crab');
+    for (const x of S.creeps) if (!x.dead) { x.x = h.x + 0.5; x.z = h.z - 0.5; x.px = x.x; x.pz = x.z; x.hp = 1; }
+    RESORT.cast(slot, h.x, h.z);
+    RESORT.runTicks(1);
+    const capped = S.corpses.length;
+    S.quota = S.killed;
+    RESORT.runTicks(1);
+    const ported = { phase: S.phase, zone: S.zone, corpses: S.corpses.length };
+    RESORT.skipTide();
+    RESORT.runTicks(3);
+    S.quota = 9999; S.spawned = 9999;
+    RESORT.spawn(3, 'crab');
+    for (const x of S.creeps) if (!x.dead) { x.x = h.x + 1; x.z = h.z; x.px = x.x; x.pz = x.z; x.dmg = 5000; }
+    let g2 = 0;
+    while (S.phase === 'TIDE' && g2++ < 300) RESORT.runTicks(1);
+    return { born, expired, capped, ported, washPhase: S.phase, washCorpses: S.corpses.length };
+  })()`);
+  ok(corpse.born, 'a kill leaves a sim-side corpse record: skin + position + expiry');
+  ok(corpse.expired, 'corpses expire off the sand by secs(6)');
+  ok(corpse.capped === 16, 'a 25-kill nova wipe caps the morgue at 16 (FIFO)', `n=${corpse.capped}`);
+  ok(corpse.ported.phase === 'BREAK' && corpse.ported.zone === 'MARKET' && corpse.ported.corpses === 0,
+    'the clear-port sweeps the sand clean — corpses are zone-local debris', JSON.stringify(corpse.ported));
+  ok(corpse.washPhase === 'WASHOUT' && corpse.washCorpses === 0, 'so does the washout');
+
+  // V10 swarm: THE DROWNED TIDE — corpses in, drowned out, own-src recast,
+  // the golem fights on, ttl sinks them
+  const swarm = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-swarm', 'wrestler', 8);
+    RESORT.buySpell('reefgolem');
+    RESORT.buySpell('drownedtide');
+    __ws3arm();
+    const h = S.hero;
+    RESORT.cast('R', h.x + 3, h.z);
+    const golemId = S.allies[0] && S.allies[0].id;
+    RESORT.equip('drownedtide', 'R');
+    const refuse = RESORT.cast('R', h.x, h.z);
+    const refuseCd = S.cds.drownedtide || 0;
+    RESORT.spawn(3, 'crab');
+    for (const c of S.creeps) if (!c.dead) { c.x = h.x + 1.0; c.z = h.z - 1.0; c.px = c.x; c.pz = c.z; c.hp = 1; }
+    let g = 0;
+    while (S.corpses.length < 3 && g++ < 120) RESORT.runTicks(1);
+    const morgue = S.corpses.length;
+    const r = RESORT.cast('R', h.x, h.z);
+    const raised = S.allies.filter(a => a.kind === 'drowned');
+    const first = raised[0] || {};
+    const consumed = S.corpses.length;
+    const oldIds = raised.map(a => a.id);
+    RESORT.spawn(2, 'crab');
+    for (const c of S.creeps) if (!c.dead) { c.x = h.x - 1.2; c.z = h.z - 1.0; c.px = c.x; c.pz = c.z; c.hp = 1; }
+    g = 0;
+    while (S.corpses.length < 1 && g++ < 120) RESORT.runTicks(1);
+    S.cds.drownedtide = 0;
+    RESORT.cast('R', h.x, h.z);
+    RESORT.runTicks(1);
+    const after = S.allies.filter(a => !a.dead);
+    const golemStill = after.some(a => a.id === golemId);
+    const oldGone = !after.some(a => oldIds.includes(a.id));
+    const newDrowned = after.filter(a => a.kind === 'drowned').length;
+    RESORT.runTicks(310);
+    return { refuse: refuse.why, refuseCd, morgue, ok: r.ok, count: raised.length,
+      hp: first.maxHp, dmg: first.dmg, consumed, golemStill, oldGone, newDrowned,
+      ttlDead: S.allies.filter(a => a.kind === 'drowned' && !a.dead).length };
+  })()`);
+  ok(swarm.refuse === 'corpses' && swarm.refuseCd === 0,
+    'THE DROWNED TIDE over clean sand refuses (why:corpses) — cooldown unspent');
+  ok(swarm.morgue >= 3 && swarm.ok && swarm.count === 3 && swarm.consumed === swarm.morgue - 3,
+    'three fresh corpses raise THREE drowned crabs and are consumed', `morgue=${swarm.morgue} raised=${swarm.count}`);
+  ok(swarm.hp === 190 && swarm.dmg === 24, 'the drowned statline is formula-exact (190 HP / 24 dmg at r1, sp 0)');
+  ok(swarm.golemStill && swarm.oldGone && swarm.newDrowned >= 1,
+    'recasting replaces OWN units only — the REEF GOLEM fights on through both raises',
+    `golem=${swarm.golemStill} newPack=${swarm.newDrowned}`);
+  ok(swarm.ttlDead === 0, 'the drowned sink back at their 15s ttl');
+
+  // KRAKEN'S GRIP: boss-sized aoe root, and the half-rule again
+  const kraken = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-kraken', 'wrestler', 8);
+    RESORT.buySpell('krakengrip');
+    __ws3arm();
+    const h = S.hero;
+    RESORT.spawn(2, 'crab');
+    const cs = S.creeps.filter(x => !x.dead);
+    const A = cs[0], B = cs[1];
+    A.x = h.x; A.z = h.z - 8; A.px = A.x; A.pz = A.z; A.hp = A.maxHp = 9000;
+    B.x = h.x + 3.5; B.z = h.z - 8; B.px = B.x; B.pz = B.z; B.hp = B.maxHp = 90000; B.big = true;
+    RESORT.cast('R', A.x, A.z);
+    return { dA: 9000 - A.hp, dB: 90000 - B.hp, rootA: A.rootTicks, rootB: B.rootTicks };
+  })()`);
+  ok(kraken.dA === 130 && kraken.dB === 130, "KRAKEN'S GRIP: 130 to everything in its 4.5m (r1, sp 0)", JSON.stringify([kraken.dA, kraken.dB]));
+  ok(kraken.rootA === 44 && kraken.rootB === 22,
+    'the root lands 2.2s — and HALF on a boss (44 / 22 ticks)', `${kraken.rootA}/${kraken.rootB}`);
+
+  // V11 cheat-death: SECOND SUNRISE — the save, the sleep, the second death,
+  // the sacred respec, and the R-scan byte-identical guard in miniature
+  const sunrise = await evalJs(`(()=>{
+    const S = __ws3jump('ws3-sunrise', 'wrestler', 8);
+    RESORT.buySpell('secondsunrise');
+    __ws3arm();
+    const h = S.hero;
+    RESORT.givePearls(10);
+    RESORT.buySpell('avatar');
+    const statsBefore = JSON.stringify([h.dmg, h.crit, h.lifesteal, h.thorns, h.maxHp, h.cdMult]);
+    RESORT.equip('avatar', 'R');
+    const statsWithAvatar = JSON.stringify([h.dmg, h.crit, h.lifesteal, h.thorns, h.maxHp, h.cdMult]);
+    RESORT.equip('secondsunrise', 'R');
+    h.stun = 40;
+    const deaths0 = S.deaths;
+    S.pendings.push({ due: S.tick + 1, x: h.x, z: h.z, r: 3, dmg: 999999, side: 'hostile' });
+    RESORT.runTicks(2);
+    const saved = { hp: h.hp, want: Math.round(h.maxHp * 0.30), stun: h.stun,
+      deaths: S.deaths - deaths0, phase: S.phase, sleep: S.cds.secondsunrise };
+    S.pendings.push({ due: S.tick + 1, x: h.x, z: h.z, r: 3, dmg: 999999, side: 'hostile' });
+    RESORT.runTicks(2);
+    const second = { phase: S.phase, deaths: S.deaths - deaths0 };
+    const r = RESORT.respec();
+    return { statsSame: statsBefore === statsWithAvatar, saved, second,
+      respecOk: r.ok, disarmed: Object.keys(S.cds).length === 0 };
+  })()`);
+  ok(sunrise.statsSame,
+    'an ACTIVE big in R feeds the new passive scan NOTHING — stats identical (byte-identical guard in miniature)');
+  ok(sunrise.saved.hp === sunrise.saved.want && sunrise.saved.deaths === 0 && sunrise.saved.phase === 'TIDE',
+    'a lethal slam does NOT take you: back at round(30% max), zero deaths, the tide still running',
+    `hp=${sunrise.saved.hp}/${sunrise.saved.want}`);
+  ok(sunrise.saved.stun === 0, 'the sunrise sheds the stun on the way back up');
+  ok(sunrise.saved.sleep === 1799, 'then it sleeps: secs(90) on the R slot (set mid-tick: 1799 seen)', `sleep=${sunrise.saved.sleep}`);
+  ok(sunrise.second.phase === 'WASHOUT' && sunrise.second.deaths === 1,
+    'a second lethal while it sleeps is a REAL washout');
+  ok(sunrise.respecOk && sunrise.disarmed,
+    'the Tide Tablet refunds the sunrise AND disarms the sleep (cds cleared) — respec stays sacred');
+
+  // WS3 determinism: a new-verb build reproduces byte-for-byte
+  const ws3det = `(()=>{
+    RESORT.setSeed('ws3-det');
+    RESORT.pickBody('wrestler');
+    RESORT.givePearls(20);
+    RESORT.buySpell('conchcrack');
+    RESORT.buySpell('jellysting');
+    RESORT.buySpell('barnaclehide');
+    RESORT.skipTide();
+    RESORT.runTicks(200);
+    const S = RESORT.state;
+    const c = S.creeps.find(c => !c.dead);
+    if (c) RESORT.cast('Q', c.x, c.z);
+    RESORT.runTicks(300);
+    return RESORT.snapshot();
+  })()`;
+  const wa = await evalJs(ws3det);
+  const wb = await evalJs(ws3det);
+  ok(JSON.stringify(wa) === JSON.stringify(wb) && wa.kills > 0,
+    'a WS3 build (bolt + venom + hide) reproduces byte-for-byte — new draws are seeded like the old',
+    `kills=${wa.kills} draws=${wa.draws}`);
 
   // --- 9. LIVE FRAME + SCREENSHOT ---------------------------------------
   console.log('\nRENDER');

@@ -14,12 +14,12 @@ import { TXT, tf, localizeDom, i18nAudit } from './i18n.js';
 import { makeSeed } from './rng.js';
 import { createSim, COVE, MARKET, ZONE, TUNE, PHASE, SIM_HZ, TICK_S, creepHp, tideQuota, clearGold, tideNow, secs } from './sim.js';
 import { createScene, PAL } from './scene.js';
-import { SPELL, SPELLS, BODIES, MOD, CAT_COLOR, RULES } from './data.js';
+import { SPELL, SPELLS, BODIES, MOD, CAT_COLOR, RULES, rv } from './data.js';
 import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSlot } from './shop.js';
 import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, toggleStandings, mmss } from './ghost.js';
 import { AUDIO } from './audio.js';
 
-export const VERSION = '0.6.0';
+export const VERSION = '0.7.0';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;
@@ -72,6 +72,8 @@ const HINTS = [
   'BIGS COST 8 PEARLS AND UNLOCK AT TIDE 8. SAVE LIKE YOU MEAN IT.',
   'MILESTONE TIDES PAY DOUBLE PEARLS. 5 AND 10 ARE PAYDAY.',
   'DRINK THE GUAVA AT HALF HEALTH, NOT AT NONE. CORPSES CANNOT SIP.',
+  'THE DEAD STAY SIX SECONDS. THE DROWNED TIDE IS PUNCTUAL.',
+  'STUNS HIT BOSSES AT HALF STRENGTH. STILL WORTH IT.',
 ];
 let hintIdx = -1;
 let hintAt = 0;
@@ -289,6 +291,12 @@ function consumeEvents() {
         scene.popFoamRing(e.x, e.z);
         break;
       case 'hit': {
+        // WS3 venom/burn chunks stay quiet: a small moss-green float, no
+        // spark, no sound — forty ticking creeps must never read as rain
+        if (e.kind === 'dot') {
+          pushFloat(e.x + oX, e.z + oZ, '-' + e.amount, '#9CCB6A', 12);
+          break;
+        }
         if (e.crit) pushFloat(e.x + oX, e.z + oZ, '-' + e.amount + '!', '#FFB347', 23);
         else pushFloat(e.x + oX, e.z + oZ, '-' + e.amount, e.fatal ? '#FFF2C4' : '#FFFFFF', e.fatal ? 20 : 15);
         // WS1 impact frames: spark + per-hit sound, coloured by kind. Crits
@@ -378,6 +386,8 @@ function consumeEvents() {
         scene.popRing(e.x + oX, e.z + oZ, e.basic ? 0xFFD8A0 : catHex(e.cat), Math.max(0.4, (e.r || 0.6) / 2.4));
         // WS1: a slow APPLIED has a birth — the ice-blue crackle at the blast
         if (e.slow) { scene.popRing(e.x + oX, e.z + oZ, 0x9FD8FF, Math.max(0.5, (e.r || 1) / 1.8)); AUDIO.combat('slow_crackle'); }
+        // WS3: so does a stun — the hero's yellow ring grammar, on the victim
+        if (e.stun) { scene.popRing(e.x + oX, e.z + oZ, 0xFFD84A, Math.max(0.5, (e.r || 1) / 1.8)); AUDIO.combat('stun_ring', { sec: 1.2 }); }
         break;
       case 'aoe_hit':
         if (e.hostile) {
@@ -391,6 +401,7 @@ function consumeEvents() {
           scene.popRing(e.x + oX, e.z + oZ, catHex(e.cat), e.r / 2.4);
           if (e.slow) { scene.popRing(e.x + oX, e.z + oZ, 0x9FD8FF, e.r / 1.8); AUDIO.combat('slow_crackle'); }
           if (e.root) { scene.popRing(e.x + oX, e.z + oZ, 0xB6FF9A, e.r / 1.8); AUDIO.combat('root_snare'); }
+          if (e.stun) { scene.popRing(e.x + oX, e.z + oZ, 0xFFD84A, e.r / 1.8); AUDIO.combat('stun_ring', { sec: 1.2 }); }
         }
         break;
       case 'aoe_warn':
@@ -420,7 +431,30 @@ function consumeEvents() {
         break;
       case 'summon':
         scene.popRing(e.x + oX, e.z + oZ, 0xE7C25C, 1.2);
-        announce(TXT('THE REEF ANSWERS'), '#E7C25C', 2);
+        // WS3: the drowned rise with a headcount; the golem keeps its line
+        announce(e.count === 1 ? TXT('ONE RISES FROM THE SAND')
+          : e.count ? tf(TXT('%1 RISE FROM THE SAND'), e.count)
+          : TXT('THE REEF ANSWERS'), '#E7C25C', 2);
+        break;
+      case 'gold_burn':
+        // COWRIE WARD eating a hit: the purse pays, gold-red, honest
+        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, '-' + e.g + 'g', '#F5A05A', 15);
+        break;
+      case 'gold_ward':
+        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, TXT('THE PURSE TAKES THE HITS'), '#F5C542', 15);
+        break;
+      case 'hide':
+        scene.popRing(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, 0x3A4A52, 1.0);
+        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, tf(TXT('VANISHED — %1s'), e.sec), '#C8D8E0', 15);
+        break;
+      case 'unhide':
+        scene.popRing(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, 0xC8D8E0, 0.7);
+        break;
+      case 'cheat_death':
+        announce(TXT('THE SUN COMES UP TWICE FOR YOU'), '#F5C542', 4.5, true);
+        scene.popRing(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, 0xFFD84A, 1.6);
+        scene.kick(0.2);
+        AUDIO.moment('level');
         break;
       case 'stun':
         pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, tf(TXT('STUNNED — %1s'), e.sec || 0.8), '#FF6B6B', 16);
@@ -706,8 +740,20 @@ function drawHud() {
     const sp = SPELL[id];
     if (ico.textContent !== sp.ico) { ico.textContent = sp.ico; ico.style.opacity = 1; }
     if (sp.kind === 'passive') {
-      const t = TXT('PASSIVE');
-      if (tag.textContent !== t) { tag.textContent = t; cd.style.height = '0%'; cdt.textContent = ''; slot.classList.add('ready'); }
+      // WS3: a passive that SLEEPS (SECOND SUNRISE after it saves you) wears
+      // its nap as a normal cooldown sweep; every other passive stays lit
+      const sleepLeft = S.cds[id] || 0;
+      if (sleepLeft > 0 && sp.fx && sp.fx.sleepSec) {
+        const smax = Math.max(1, secs(rv(sp.fx.sleepSec, S.spells[id].rank)));
+        cd.style.height = ((sleepLeft / smax) * 100) + '%';
+        cdt.textContent = String(Math.ceil(sleepLeft / SIM_HZ));
+        const t = TXT('ASLEEP');
+        if (tag.textContent !== t) tag.textContent = t;
+        slot.classList.remove('ready');
+      } else {
+        const t = TXT('PASSIVE');
+        if (tag.textContent !== t) { tag.textContent = t; cd.style.height = '0%'; cdt.textContent = ''; slot.classList.add('ready'); }
+      }
       continue;
     }
     if (tag.textContent !== '') tag.textContent = '';
@@ -753,7 +799,7 @@ function autoAim(K) {
     if (c) return { x: h.x - (c.x - h.x), z: h.z - (c.z - h.z) };
     return { x: h.x + Math.sin(h.facing) * 6, z: h.z + Math.cos(h.facing) * 6 };
   }
-  if (t === 'proj' || t === 'aoe' || t === 'chain' || t === 'rain') {
+  if (t === 'proj' || t === 'aoe' || t === 'chain' || t === 'rain' || t === 'bolt' || t === 'line') {
     const c = nearestCreepToHero();
     if (c) return { x: c.x, z: c.z };
   }
@@ -767,6 +813,8 @@ function castSlot(K, auto) {
   const r = sim.cast(K, at.x, at.z);
   if (!r.ok && r.why === 'empty') announce(TXT('THAT SLOT IS EMPTY — THE RACKS ARE AT THE MARKET'), '#8CF0E4', 1.6);
   if (!r.ok && r.why === 'passive') announce(TXT('THAT ONE WORKS ON ITS OWN'), '#8CF0E4', 1.4);
+  if (!r.ok && r.why === 'target') announce(TXT('NOTHING IN REACH TO CRACK'), '#8CF0E4', 1.4);
+  if (!r.ok && r.why === 'corpses') announce(TXT('THE SAND KEEPS NO DEAD — KILL FIRST'), '#8CF0E4', 1.6);
   return r;
 }
 
@@ -976,6 +1024,9 @@ function installDebugApi() {
     get sceneApi() { return scene; },   // the live scene handle (FX debugging)
 
     snapshot() { return sim.snapshot(); },
+    // the i18n pair, exposed so the battery can prove every tooltip resolves
+    // its %N placeholders at every rank (WS3 pool-integrity sweep)
+    TXT, tf,
     // Re-resolve every static string through TXT(). A language switch will
     // need exactly this; today it is also how ?l10n=audit proves coverage.
     relocalize() { localizeDom(document); lastHud = ''; return true; },

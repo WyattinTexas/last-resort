@@ -120,6 +120,12 @@ export const TUNE = {
   // hit more bodies); 30 reproduces the instant-zap pacing to +0.3s.
   basicMissile: { speed: 30, retargetR: 2.5 },
 
+  // --- corpses (rev 2 WS3): kills leave a sim-side corpse record for a few
+  // seconds. Pure DATA — zero draw calls; the render corpse beat is its own
+  // independent pool. THE DROWNED TIDE eats these; WS4 entrance/death
+  // theatrics may read them (skin + position ride along).
+  corpse: { ttlSec: 6, cap: 16 },
+
   // --- creeps: ONE stat template, skin-swapped, script-scaled (§6/§2) ---
   creep: {
     baseHp: 100,
@@ -257,7 +263,8 @@ export function createSim(seedInput) {
 
     hero: null,
     creeps: [],
-    allies: [],                  // summons fight beside you (reef golem)
+    allies: [],                  // summons fight beside you (golems, the drowned)
+    corpses: [],                 // WS3: fresh kills, FIFO, zone-local debris
     projs: [],                   // spell projectiles are SIM entities, law 3 applies
     pendings: [],                // scheduled impacts: meteors, boss slams
     nextId: 1,
@@ -292,6 +299,18 @@ export function createSim(seedInput) {
     shield: 0, shieldTicks: 0,
     buffs: [],                   // [{ id, ticks, mods }]
     swingN: 0,                   // suplex counter
+    // WS3 verb state + recompute-derived riders (all zero for a classic build
+    // — every new rng draw in the engine gates on one of these, which is how
+    // the old runs stay byte-identical)
+    hideTicks: 0,
+    goldShieldTicks: 0, goldShieldRate: 0,
+    flatDR: 0, dodgePct: 0,
+    poisonPerSec: 0, poisonSec: 0, poisonSlowPct: 0,
+    cleavePct: 0, cleaveR: 0,
+    procPct: 0, procDmg: 0, procR: 0,
+    pinchPct: 0, pinchDmg: 0, pinchSec: 0,
+    burnPerSec: 0, burnR: 0,
+    auraDmgPct: 0,
   };
 
   return makeApi(S);
@@ -346,6 +365,7 @@ function snapshot(S) {
     heroX: Math.round(S.hero.x * 100), heroZ: Math.round(S.hero.z * 100),
     hpSum: Math.round(hpSum), posSum,
     draws: S._draws,
+    corpses: S.corpses.length,   // WS3 (additive — same-build comparisons only)
     // link 2 surface
     body: S.bodyId, xp: S.xp, level: S.level, pts: S.skillPts,
     shield: Math.round(S.hero.shield),
@@ -397,6 +417,20 @@ function tickOnce(S) {
     if (S.hero.shieldTicks <= 0) { S.hero.shield = 0; ev(S, 'shield_down'); }
   }
   if (S.hero.stun > 0) S.hero.stun--;
+  if (S.hero.hideTicks > 0) S.hero.hideTicks--;
+  if (S.hero.goldShieldTicks > 0) {
+    S.hero.goldShieldTicks--;
+    if (S.hero.goldShieldTicks <= 0) S.hero.goldShieldRate = 0;
+  }
+
+  // --- WS3 corpse records age out (FIFO by push order, so the front expires first) ---
+  while (S.corpses.length && S.corpses[0].until <= S.tick) S.corpses.shift();
+
+  // --- WS3 EMBER SKIN: the burn ring pulses every half second, tides only ---
+  if (S.hero.burnPerSec > 0 && S.phase === PHASE.TIDE && !S.hero.dead && S.tick % 10 === 0) {
+    areaDamage(S, S.hero.x, S.hero.z, S.hero.burnR,
+      Math.max(1, Math.round(S.hero.burnPerSec / 2)), { kind: 'dot' });
+  }
 
   // --- units ---
   if (!S.hero.dead) heroStep(S);
@@ -406,9 +440,11 @@ function tickOnce(S) {
   resolvePendings(S);
   resolveBodies(S);
 
-  // --- regen ---
+  // --- regen (ALOE SALVE's heal-over-time rides the same accumulator) ---
   if (!S.hero.dead && S.hero.hp < S.hero.maxHp) {
-    S.hero.regenAcc += S.hero.regen * TICK_S;
+    let hot = 0;
+    for (const b of S.hero.buffs) if (b.mods.hotPerSec) hot += b.mods.hotPerSec;
+    S.hero.regenAcc += (S.hero.regen + hot) * TICK_S;
     const whole = Math.floor(S.hero.regenAcc);
     if (whole > 0) { S.hero.regenAcc -= whole; S.hero.hp = Math.min(S.hero.maxHp, S.hero.hp + whole); }
   }
@@ -423,6 +459,10 @@ function tickOnce(S) {
       if (c.dead) {
         if (!c.receded) {
           onCreepKilled(S, c);
+          // WS3: a real kill leaves a corpse record for a few seconds (FIFO
+          // cap — the freshest dead are the ones that matter)
+          S.corpses.push({ x: c.x, z: c.z, skin: c.skin, until: S.tick + secs(TUNE.corpse.ttlSec) });
+          if (S.corpses.length > TUNE.corpse.cap) S.corpses.shift();
           // SPLITTING JELLIES (modifier, §6): the sweep is the one safe place
           // to add units — the tick's loops are all behind us.
           if (S.tideMod === 'split' && !c.mini && !c.big) splits.push(c);
@@ -481,6 +521,7 @@ function portTo(S, zone) {
   }
   S.projs = [];
   S.pendings = [];
+  S.corpses = [];                // zone-local debris, exactly like the projs
   ev(S, 'port', { to: zone, x: at.x, z: at.z });
 }
 
@@ -579,6 +620,9 @@ function heroDown(S) {
   S.hero.hasOrder = false;
   S.hero.shield = 0;
   S.hero.buffs = [];
+  S.hero.hideTicks = 0;
+  S.hero.goldShieldTicks = 0;
+  S.hero.goldShieldRate = 0;
   recomputeStats(S);
   S.deaths++;
   S.tide = Math.max(0, S.tide - 1);   // this tide didn't count; it rolls in again
@@ -588,6 +632,7 @@ function heroDown(S) {
   for (const a of S.allies) a.dead = true;
   S.projs = [];
   S.pendings = [];
+  S.corpses = [];                // the sea takes its dead back too
   ev(S, 'hero_down', { tide: S.tide + 1 });
 }
 
@@ -655,6 +700,11 @@ function makeCreep(S, o) {
     hitFlash: 0,
     slowTicks: 0, slowMult: 1,
     rootTicks: 0,
+    stunTicks: 0,                                  // WS3: stopped outright (feet AND claws)
+    vulnTicks: 0, vulnPct: 0,                      // WS3: takes +% damage
+    weakenTicks: 0, weakenPct: 0,                  // WS3: deals -% damage
+    missTicks: 0, missPct: 0,                      // WS3: whiffs % of swings
+    dotTicks: 0, dotPerSec: 0, dotAcc: 0,          // WS3: venom, chunked 0.5s
     bob: o.bob !== undefined ? o.bob : 0,
     mini: !!o.mini, big: !!o.big,
     bountyMult: o.bountyMult !== undefined ? o.bountyMult : 1,
@@ -950,8 +1000,17 @@ function recomputeStats(S) {
     spFlat += m.sp || 0; asPct += m.asPct || 0; msPct += m.msPct || 0;
   }
 
-  // slotted passives ONLY — three slots force real choices (§6's 3+1 layout)
-  for (const k of ['Q', 'W', 'E']) {
+  // slotted passives ONLY — three slots force real choices (§6's 3+1 layout).
+  // WS3: the scan includes R now (SECOND SUNRISE is an R-slot passive big) —
+  // every shipped big before it is an active, so nothing changes for them.
+  // spNow mirrors the h.sp assignment below exactly (passives never grant sp),
+  // so sp-scaled riders like SHOREBREAK's proc damage compute here once.
+  let flatDR = 0, dodgePct = 0, poisonPerSec = 0, poisonSec = 0, poisonSlowPct = 0;
+  let cleavePct = 0, cleaveR = 0, procPct = 0, procDmg = 0, procR = 0;
+  let pinchPct = 0, pinchDmg = 0, pinchSec = 0, burnPerSec = 0, burnR = 0;
+  let dmgPct = 0, cdrPct = 0;
+  const spNow = Math.round(base.sp + spFlat);
+  for (const k of ['Q', 'W', 'E', 'R']) {
     const id = S.slots[k];
     if (!id) continue;
     const sp = SPELL[id];
@@ -963,6 +1022,24 @@ function recomputeStats(S) {
     if (fx.asPct) asPct += rv(fx.asPct, r);
     if (fx.msPct) msPct += rv(fx.msPct, r);
     if (fx.thorns) thorns += rv(fx.thorns, r);
+    // --- the WS3 rider set ---
+    if (fx.flatDR) flatDR += rv(fx.flatDR, r);
+    if (fx.dodgePct) dodgePct += rv(fx.dodgePct, r);
+    if (fx.poisonPerSec) {
+      poisonPerSec = Math.max(poisonPerSec, rv(fx.poisonPerSec, r));
+      poisonSec = fx.poisonSec;
+      poisonSlowPct = fx.poisonSlowPct;
+    }
+    if (fx.cleavePct) { cleavePct += rv(fx.cleavePct, r); cleaveR = Math.max(cleaveR, fx.cleaveR); }
+    if (fx.procPct) {
+      procPct += rv(fx.procPct, r);
+      procDmg = Math.round(rv(fx.procDmg, r) + spNow * (fx.procSpc || 0));
+      procR = fx.procR;
+    }
+    if (fx.pinchPct) { pinchPct += rv(fx.pinchPct, r); pinchDmg = rv(fx.pinchDmg, r); pinchSec = fx.pinchSec; }
+    if (fx.burnPerSec) { burnPerSec += rv(fx.burnPerSec, r); burnR = Math.max(burnR, rv(fx.burnR, r)); }
+    if (fx.dmgPct) dmgPct += rv(fx.dmgPct, r);
+    if (fx.cdrPct) cdrPct += rv(fx.cdrPct, r);
   }
 
   // timed buffs (avatar, riptide feet, juices)
@@ -973,6 +1050,9 @@ function recomputeStats(S) {
     if (m.msMult) msMult *= m.msMult;
     if (m.dmgFlat) dmgFlat += m.dmgFlat;
   }
+
+  // TIKI DRUMS folds into the damage multiplier (and feeds the summons)
+  dmgMult *= (1 + dmgPct / 100);
 
   const oldMax = h.maxHp;
   h.maxHp = Math.round(base.maxHp + hpFlat);
@@ -988,12 +1068,22 @@ function recomputeStats(S) {
   h.crit = crit;
   h.lifesteal = lifesteal;
   h.thorns = thorns;
-  h.cdMult = (S.bodyId === 'magician') ? 0.85 : 1;   // ENCORE innate
+  // WS3 riders land as plain hero stats — recomputed, never incremented
+  h.flatDR = flatDR;
+  h.dodgePct = dodgePct;
+  h.poisonPerSec = poisonPerSec; h.poisonSec = poisonSec; h.poisonSlowPct = poisonSlowPct;
+  h.cleavePct = cleavePct; h.cleaveR = cleaveR;
+  h.procPct = procPct; h.procDmg = procDmg; h.procR = procR;
+  h.pinchPct = pinchPct; h.pinchDmg = pinchDmg; h.pinchSec = pinchSec;
+  h.burnPerSec = burnPerSec; h.burnR = burnR;
+  h.auraDmgPct = dmgPct;
+  // ENCORE innate × TRADE WINDS aura — the HUD and the charge both read this live
+  h.cdMult = ((S.bodyId === 'magician') ? 0.85 : 1) * (1 - cdrPct / 100);
 }
 
 // ---------------------------------------------------------------------------
-// THE SPELL ENGINE — one interpreter, sixteen data rows, zero bespoke spells.
-// Numbers: value = rv(spec, rank) (+ sp × spc where damage-like).
+// THE SPELL ENGINE — one interpreter, thirty-eight data rows, zero bespoke
+// spells. Numbers: value = rv(spec, rank) (+ sp × spc where damage-like).
 // ---------------------------------------------------------------------------
 function castSpell(S, slotKey, ax, az) {
   if (S.phase === PHASE.FORGE || S.phase === PHASE.WASHOUT) return { ok: false, why: 'phase' };
@@ -1013,10 +1103,36 @@ function castSpell(S, slotKey, ax, az) {
   ax = clamp(ax === undefined ? h.x : ax, ab.x0, ab.x1);
   az = clamp(az === undefined ? h.z : az, ab.z0, ab.z1);
 
+  // WS3: refusals that depend on the world refuse BEFORE the cooldown spends.
+  // A bolt with nothing to crack and a corpse-raise over clean sand both cost
+  // nothing — the refusal string teaches, the purse and the clock stay whole.
+  let boltTgt = null;
+  if (fx.type === 'bolt') {
+    boltTgt = nearestCreepTo(S, ax, az, 3.5, null) || nearestCreepTo(S, h.x, h.z, 9, null);
+    if (!boltTgt) return { ok: false, why: 'target' };
+  }
+  if (fx.type === 'summon' && fx.fromCorpses && S.corpses.length === 0) {
+    return { ok: false, why: 'corpses' };
+  }
+
   S.cds[id] = Math.round(secs(sp.cd) * h.cdMult);
   ev(S, 'cast', { id, cat: sp.cat, x: h.x, z: h.z, ax, az });
 
+  // SQUID INK: doing anything loud blows the cover — any other cast included
+  if (fx.type !== 'hide' && h.hideTicks > 0) { h.hideTicks = 0; ev(S, 'unhide'); }
+
   const D = spec => Math.round(rv(spec, rank) + (fx.spc ? h.sp * fx.spc : 0));
+  // the shared status-rider bundle: any area verb can carry any of these
+  const riderOpts = () => ({
+    cat: sp.cat,
+    slowPct: fx.slowPct ? rv(fx.slowPct, rank) : 0, slowSec: fx.slowSec || 0,
+    rootSec: fx.rootSec ? rv(fx.rootSec, rank) : 0,
+    stunSec: fx.stunSec ? rv(fx.stunSec, rank) : 0,
+    vulnPct: fx.vulnPct ? rv(fx.vulnPct, rank) : 0, vulnSec: fx.vulnSec || 0,
+    weakenPct: fx.weakenPct ? rv(fx.weakenPct, rank) : 0,
+    weakenSec: fx.weakenSec ? rv(fx.weakenSec, rank) : 0,
+    missPct: fx.missPct ? rv(fx.missPct, rank) : 0, missSec: fx.missSec || 0,
+  });
 
   switch (fx.type) {
     case 'proj': {
@@ -1046,20 +1162,69 @@ function castSpell(S, slotKey, ax, az) {
     }
     case 'nova': {
       const r = rv(fx.radius, rank);
-      areaDamage(S, h.x, h.z, r, D(fx.dmg), { cat: sp.cat });
-      ev(S, 'aoe_hit', { x: h.x, z: h.z, r, cat: sp.cat });
+      areaDamage(S, h.x, h.z, r, D(fx.dmg), riderOpts());
+      ev(S, 'aoe_hit', { x: h.x, z: h.z, r, cat: sp.cat, stun: !!fx.stunSec });
       break;
     }
     case 'aoe': {
       const r = rv(fx.radius, rank);
-      areaDamage(S, ax, az, r, D(fx.dmg), {
-        cat: sp.cat,
-        slowPct: fx.slowPct ? rv(fx.slowPct, rank) : 0, slowSec: fx.slowSec || 0,
-        rootSec: fx.rootSec ? rv(fx.rootSec, rank) : 0,
+      areaDamage(S, ax, az, r, D(fx.dmg), riderOpts());
+      // slow/root/stun flags let the state change have a BIRTH on screen (WS1)
+      // — a crackle ring at the blast, not just a tint that was suddenly there
+      ev(S, 'aoe_hit', { x: ax, z: az, r, cat: sp.cat, slow: !!fx.slowPct, root: !!fx.rootSec, stun: !!fx.stunSec });
+      break;
+    }
+    case 'bolt': {
+      // the WS1 homing lane, generalised: a spell missile at the acquired
+      // creep (boltTgt was proven above), riders land on CONNECT
+      S.projs.push({
+        id: S.nextId++,
+        kind: 'bolt',
+        x: h.x, z: h.z, px: h.x, pz: h.z,
+        tgt: boltTgt.id,
+        speed: fx.speed,
+        traveled: 0,
+        maxDist: Math.max(0.1, Math.hypot(boltTgt.x - h.x, boltTgt.z - h.z)),
+        dmg: D(fx.dmg),
+        stunSec: fx.stunSec || 0,
+        drainPct: fx.drainPct || 0,
+        cat: sp.cat, dead: false,
       });
-      // slow/root flags let the state change have a BIRTH on screen (WS1) —
-      // a crackle ring at the blast, not just a tint that was suddenly there
-      ev(S, 'aoe_hit', { x: ax, z: az, r, cat: sp.cat, slow: !!fx.slowPct, root: !!fx.rootSec });
+      break;
+    }
+    case 'line': {
+      // RIPCURRENT: a travelling tear that never dies on contact — each creep
+      // it crosses is hit exactly once (the hit list), gone at full distance
+      let dx = ax - h.x, dz = az - h.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.001) { dx = Math.sin(h.facing); dz = Math.cos(h.facing); }
+      else { dx /= d; dz /= d; }
+      S.projs.push({
+        id: S.nextId++,
+        kind: 'line',
+        x: h.x, z: h.z, px: h.x, pz: h.z,
+        dx, dz,
+        speed: fx.speed,
+        traveled: 0,
+        dist: fx.dist,
+        width: fx.width,
+        dmg: D(fx.dmg),
+        hit: [],
+        cat: sp.cat, dead: false,
+      });
+      break;
+    }
+    case 'goldshield': {
+      // COWRIE WARD: the purse takes the hits (the burn itself lives in
+      // hurtHero, where the ledger law is enforced by construction)
+      S.hero.goldShieldTicks = secs(fx.sec);
+      S.hero.goldShieldRate = rv(fx.rate, rank);
+      ev(S, 'gold_ward', { sec: fx.sec });
+      break;
+    }
+    case 'hide': {
+      S.hero.hideTicks = secs(rv(fx.sec, rank));
+      ev(S, 'hide', { sec: rv(fx.sec, rank) });
       break;
     }
     case 'chain': {
@@ -1121,10 +1286,11 @@ function castSpell(S, slotKey, ax, az) {
       break;
     }
     case 'buff': {
-      addBuff(S, {
-        id: sp.id, ticks: secs(fx.sec),
-        mods: { dmgMult: rv(fx.dmgMult, rank), asMult: fx.asMult },
-      });
+      const mods = { dmgMult: rv(fx.dmgMult, rank), asMult: fx.asMult };
+      // ALOE SALVE: the total restore spread across the duration, riding the
+      // regen accumulator (dead heroes don't tick it, overheal does nothing)
+      if (fx.hotAmount) mods.hotPerSec = D(fx.hotAmount) / fx.sec;
+      addBuff(S, { id: sp.id, ticks: secs(fx.sec), mods });
       if (fx.shield) {
         const amt = D(fx.shield);
         S.hero.shield = amt;
@@ -1134,38 +1300,60 @@ function castSpell(S, slotKey, ax, az) {
       break;
     }
     case 'summon': {
-      // one golem at a time: recasting replaces the standing one
-      for (const a of S.allies) a.dead = true;
-      const gx = clamp(ax, h.x - 4, h.x + 4), gz = clamp(az, h.z - 4, h.z + 4);
-      const gb = heroBounds(S);
-      S.allies.push({
-        id: S.nextId++,
-        x: clamp(gx, gb.x0, gb.x1),
-        z: clamp(gz, gb.z0, gb.z1),
-        px: gx, pz: gz,
-        hp: D(fx.hp), maxHp: D(fx.hp),
-        dmg: Math.round(rv(fx.dmg, rank)),
-        atkTicks: secs(fx.atkS), atkCd: 0, atkAnim: 0,
-        range: fx.range, ms: fx.ms, radius: fx.radius,
-        ttl: secs(fx.sec),
-        facing: 0, dead: false, hitFlash: 0,
-      });
-      ev(S, 'summon', { x: gx, z: gz });
+      // recasting replaces YOUR OWN standing units of this spell only — the
+      // golem and the drowned coexist (one golem today: behaviour-identical)
+      for (const a of S.allies) if (a.src === sp.id) a.dead = true;
+      const hpEach = D(fx.hp);
+      const spawnAlly = (sx, sz) => {
+        const gb = heroBounds(S);
+        S.allies.push({
+          id: S.nextId++,
+          x: clamp(sx, gb.x0, gb.x1),
+          z: clamp(sz, gb.z0, gb.z1),
+          px: sx, pz: sz,
+          hp: hpEach, maxHp: hpEach,
+          dmg: Math.round(rv(fx.dmg, rank)),
+          atkTicks: secs(fx.atkS), atkCd: 0, atkAnim: 0,
+          range: fx.range, ms: fx.ms, radius: fx.radius,
+          ttl: secs(fx.sec),
+          facing: 0, dead: false, hitFlash: 0,
+          kind: fx.unit || 'golem', src: sp.id,
+        });
+      };
+      if (fx.fromCorpses) {
+        // THE DROWNED TIDE: consume the n FRESHEST corpses (the tail of the
+        // FIFO — deterministic), raise each drowned crab where its body lay
+        const n = Math.min(Math.round(rv(fx.count, rank)), S.corpses.length);
+        const used = S.corpses.splice(S.corpses.length - n, n);
+        for (const co of used) spawnAlly(co.x, co.z);
+        ev(S, 'summon', { x: used[0].x, z: used[0].z, count: n });
+      } else {
+        const gx = clamp(ax, h.x - 4, h.x + 4), gz = clamp(az, h.z - 4, h.z + 4);
+        spawnAlly(gx, gz);
+        ev(S, 'summon', { x: gx, z: gz });
+      }
       break;
     }
   }
   return { ok: true };
 }
 
-// damage every living creep in a circle; riders apply slows/roots
+// damage every living creep in a circle; riders apply slows/roots/stuns and
+// the WS3 debuff set. A zero-damage cast (FOGHORN, GULL SWARM) applies riders
+// ONLY — no hit events, no floats, no batch-kill pollution. Stuns and roots
+// always land at HALF duration on a boss — one rule, every tooltip states it.
 function areaDamage(S, x, z, r, dmg, o) {
   for (const c of S.creeps) {
     if (c.dead || c.receding) continue;
     const dx = c.x - x, dz = c.z - z;
     if (dx * dx + dz * dz > (r + c.radius) * (r + c.radius)) continue;
-    damageCreep(S, c, dmg, { spell: true });
+    if (dmg > 0) damageCreep(S, c, dmg, { spell: true, kind: o.kind });
     if (o.slowPct) { c.slowTicks = secs(o.slowSec); c.slowMult = 1 - o.slowPct / 100; }
-    if (o.rootSec) c.rootTicks = secs(o.rootSec);
+    if (o.rootSec) c.rootTicks = secs(o.rootSec * (c.big ? 0.5 : 1));
+    if (o.stunSec) c.stunTicks = secs(o.stunSec * (c.big ? 0.5 : 1));
+    if (o.vulnPct) { c.vulnTicks = secs(o.vulnSec); c.vulnPct = o.vulnPct; }
+    if (o.weakenPct) { c.weakenTicks = secs(o.weakenSec); c.weakenPct = o.weakenPct; }
+    if (o.missPct) { c.missTicks = secs(o.missSec); c.missPct = o.missPct; }
   }
 }
 
@@ -1188,12 +1376,13 @@ function stepProjectiles(S) {
   for (const p of S.projs) {
     if (p.dead) continue;
 
-    // The ranged BASIC (kind:'basic', rev 2 WS1) homes on its target's current
-    // position. Target died mid-flight? Swing to the nearest living creep
-    // within retargetR (deterministic lowest-id tie-break, same as every other
-    // nearest), else fizzle silently — overkill shots simply vanish. Damage,
-    // crit and lifesteal land on CONNECT. WS3 ranged creeps inherit this lane.
-    if (p.kind === 'basic') {
+    // The homing lane (rev 2 WS1, generalised by WS3): the ranged BASIC and
+    // the spell BOLT both home on their target's current position. Target died
+    // mid-flight? Swing to the nearest living creep within retargetR
+    // (deterministic lowest-id tie-break, same as every other nearest), else
+    // fizzle silently — overkill shots simply vanish. Damage, crit, lifesteal
+    // and the bolt riders (stun / drain) all land on CONNECT.
+    if (p.kind === 'basic' || p.kind === 'bolt') {
       let tgt = null;
       for (const c of S.creeps) {
         if (c.id === p.tgt) { if (!c.dead && !c.receding) tgt = c; break; }
@@ -1209,16 +1398,54 @@ function stepProjectiles(S) {
       const d = Math.hypot(dx, dz);
       if (d <= 0.45 + tgt.radius) {
         p.dead = true;
-        damageCreep(S, tgt, p.dmg, { kind: 'shot', crit: p.crit });
         const h = S.hero;
-        if (h.lifesteal > 0 && !h.dead) h.hp = Math.min(h.maxHp, h.hp + p.dmg * (h.lifesteal / 100));
-        ev(S, 'proj_hit', { x: p.x, z: p.z, r: 0.5, basic: true });
+        if (p.kind === 'basic') {
+          damageCreep(S, tgt, p.dmg, { kind: 'shot', crit: p.crit });
+          if (h.lifesteal > 0 && !h.dead) h.hp = Math.min(h.maxHp, h.hp + p.dmg * (h.lifesteal / 100));
+          if (h.poisonPerSec > 0) applyPoison(S, tgt, h);   // JELLY STING rides wand connects too
+          ev(S, 'proj_hit', { x: p.x, z: p.z, r: 0.5, basic: true });
+        } else {
+          damageCreep(S, tgt, p.dmg, { kind: 'spell' });
+          if (p.stunSec) c_stun(tgt, p.stunSec);
+          if (p.drainPct && !h.dead) {
+            const heal = Math.min(h.maxHp - h.hp, Math.round(p.dmg * p.drainPct / 100));
+            if (heal > 0) { h.hp += heal; ev(S, 'heal', { x: h.x, z: h.z, amount: heal }); }
+          }
+          ev(S, 'proj_hit', { x: p.x, z: p.z, r: 0.6, cat: p.cat, stun: !!p.stunSec });
+        }
         continue;
       }
       const step = Math.min(d, p.speed * TICK_S);
       p.x += (dx / d) * step;
       p.z += (dz / d) * step;
       p.traveled += step;
+      continue;
+    }
+
+    // The LINE (WS3, RIPCURRENT): a travelling tear that never dies on
+    // contact. Each tick it sweeps a segment; every living creep within
+    // width of that segment is hit exactly once (the hit list). Dies only
+    // at full distance.
+    if (p.kind === 'line') {
+      const step = p.speed * TICK_S;
+      const x0 = p.x, z0 = p.z;
+      p.x += p.dx * step;
+      p.z += p.dz * step;
+      p.traveled += step;
+      for (const c of S.creeps) {
+        if (c.dead || c.receding) continue;
+        if (p.hit.includes(c.id)) continue;
+        const along = Math.max(0, Math.min(step, (c.x - x0) * p.dx + (c.z - z0) * p.dz));
+        const qx = x0 + p.dx * along, qz = z0 + p.dz * along;
+        const dx = c.x - qx, dz = c.z - qz;
+        const rr = p.width + c.radius;
+        if (dx * dx + dz * dz <= rr * rr) {
+          p.hit.push(c.id);
+          damageCreep(S, c, p.dmg, { spell: true });
+          ev(S, 'proj_hit', { x: c.x, z: c.z, r: 0.8, cat: p.cat });
+        }
+      }
+      if (p.traveled >= p.dist) p.dead = true;
       continue;
     }
 
@@ -1338,6 +1565,8 @@ function heroStep(S) {
 // One landed swing: dodge check, suplex, crit, lifesteal — the whole basic kit.
 function heroBasicHit(S, c) {
   const h = S.hero;
+  // swinging blows SQUID INK's cover — landed or whiffed, missile or melee
+  if (h.hideTicks > 0) { h.hideTicks = 0; ev(S, 'unhide'); }
   // EVASIVE MONKEYS dodge SWINGS; spells never miss (the counterplay IS the shop)
   if (S.tideMod === 'evasive' && !c.big && S.rng() < 0.25) {
     ev(S, 'dodge', { x: c.x, z: c.z });
@@ -1372,22 +1601,88 @@ function heroBasicHit(S, c) {
   if (h.lifesteal > 0 && !h.dead) {
     S.hero.hp = Math.min(h.maxHp, h.hp + dmg * (h.lifesteal / 100));
   }
+  // --- WS3 on-hit riders, melee connects only. NEW rng draws sit STRICTLY
+  // AFTER the existing dodge→crit draws and each one gates on owning the row
+  // (the RNG law: a classic build's stream keeps its exact shape). ---
+  if (h.pinchPct > 0 && S.rng() < h.pinchPct / 100) {          // PINCH POINT
+    damageCreep(S, c, h.pinchDmg, { kind: 'melee' });
+    c_stun(c, h.pinchSec);
+    ev(S, 'proj_hit', { x: c.x, z: c.z, r: 0.55, stun: true });
+  }
+  if (h.procPct > 0 && S.rng() < h.procPct / 100) {            // SHOREBREAK
+    areaDamage(S, c.x, c.z, h.procR, h.procDmg, { kind: 'spell' });
+    ev(S, 'aoe_hit', { x: c.x, z: c.z, r: h.procR, cat: 'CURRENT' });
+  }
+  if (h.cleavePct > 0) {                                       // WIDE WAKE (no roll)
+    const splash = Math.max(1, Math.round(dmg * h.cleavePct / 100));
+    for (const o of S.creeps) {
+      if (o === c || o.dead || o.receding) continue;
+      const dx = o.x - c.x, dz = o.z - c.z;
+      const rr = h.cleaveR + o.radius;
+      if (dx * dx + dz * dz <= rr * rr) damageCreep(S, o, splash, { kind: 'spell' });
+    }
+  }
+  if (h.poisonPerSec > 0) applyPoison(S, c, h);                // JELLY STING (no roll)
 }
 
 function damageCreep(S, c, amount, opts) {
+  // CRACKED SHELL: a vulnerable creep takes amplified damage from EVERYTHING
+  // — swings, spells, venom, the golem. The float shows the honest number.
+  if (c.vulnTicks > 0) amount = Math.round(amount * (1 + c.vulnPct / 100));
   c.hp -= amount;
   c.hitFlash = 3;
   // kind rides every hit so the presentation can pick its spark and its sound:
-  // 'melee' (a swing), 'shot' (a basic missile connecting), 'spell'.
+  // 'melee' (a swing), 'shot' (a basic missile connecting), 'spell', 'dot'.
   ev(S, 'hit', { id: c.id, x: c.x, z: c.z, amount, fatal: c.hp <= 0, crit: !!(opts && opts.crit),
     kind: (opts && opts.kind) || (opts && opts.spell ? 'spell' : 'melee') });
   if (c.hp <= 0) { c.hp = 0; c.dead = true; }   // LAW 3: marked only. Swept at tick end.
 }
 
-// every point of hero damage flows through here: shield first, thorns answer
+// WS3 stun application — ALWAYS half duration on a boss, the one rule every
+// stun tooltip states. Longer stuns win; they never stack.
+function c_stun(c, sec) {
+  c.stunTicks = Math.max(c.stunTicks, secs(sec * (c.big ? 0.5 : 1)));
+}
+
+// WS3 JELLY STING — reapplying refreshes the clock and keeps the strongest
+// rate; the fractional carry (dotAcc) survives the refresh so fast attackers
+// never starve the chunks.
+function applyPoison(S, c, h) {
+  c.dotTicks = secs(h.poisonSec);
+  c.dotPerSec = Math.max(c.dotPerSec, h.poisonPerSec);
+  if (h.poisonSlowPct > 0) {
+    const pm = 1 - h.poisonSlowPct / 100;
+    // never overwrite a STRONGER slow (frost); do start one if none is running
+    c.slowMult = c.slowTicks > 0 ? Math.min(c.slowMult, pm) : pm;
+    c.slowTicks = Math.max(c.slowTicks, secs(h.poisonSec));
+  }
+}
+
+// Every point of hero damage flows through here. THE ORDER IS LAW (WS3 §V6):
+//   (1) CRABWALK dodge — attacker-sourced swings only; a dodge is a full
+//       whiff: no damage, no thorns answer. (2) BARNACLE flat-DR — swings
+//       only, floor 1. (3) COWRIE gold-burn. (4) shield soak. (5) hp.
+//   (6) thorns answers. (7) SECOND SUNRISE intercepts the death.
+// Boss slams and meteors arrive with attacker null and honestly skip 1-2 —
+// the tooltips say "swings" because the engine does.
 function hurtHero(S, amount, attacker) {
   const h = S.hero;
   if (h.dead) return;
+  if (attacker && h.dodgePct > 0 && S.rng() < h.dodgePct / 100) {
+    ev(S, 'dodge', { x: h.x, z: h.z });
+    return;
+  }
+  if (attacker && h.flatDR > 0) amount = Math.max(1, amount - h.flatDR);
+  if (h.goldShieldTicks > 0 && amount > 0 && S.gold > 0) {
+    // COWRIE WARD: 1g soaks `rate` damage. Burned gold rides ledger.spent, so
+    // the every-tick ledger law holds by construction — the battery proves it.
+    const soak = Math.min(amount, S.gold * h.goldShieldRate);
+    const spentGold = Math.ceil(soak / h.goldShieldRate);
+    S.gold -= spentGold;
+    S.ledger.spent += spentGold;
+    amount -= soak;
+    ev(S, 'gold_burn', { g: spentGold });
+  }
   if (h.shield > 0) {
     const soak = Math.min(h.shield, amount);
     h.shield -= soak;
@@ -1400,7 +1695,23 @@ function hurtHero(S, amount, attacker) {
     ev(S, 'hero_hit', { amount, id: attacker ? attacker.id : 0 });
   }
   if (attacker && h.thorns > 0) damageCreep(S, attacker, h.thorns, { spell: true });
-  if (h.hp <= 0) { h.hp = 0; heroDown(S); }
+  if (h.hp <= 0) {
+    // SECOND SUNRISE: an awake R-slot sunrise takes the death instead — flash
+    // back, shed the stun, and it sleeps. The washout never fires. (A respec
+    // clears S.cds, which refunds AND disarms — correct and sacred.)
+    const sr = S.slots.R === 'secondsunrise' && S.spells.secondsunrise && SPELL.secondsunrise;
+    if (sr && (S.cds.secondsunrise || 0) === 0) {
+      const rank = S.spells.secondsunrise.rank;
+      const pct = rv(SPELL.secondsunrise.fx.cheatPct, rank);
+      h.hp = Math.max(1, Math.round(h.maxHp * pct / 100));
+      h.stun = 0;
+      S.cds.secondsunrise = secs(rv(SPELL.secondsunrise.fx.sleepSec, rank));
+      ev(S, 'cheat_death', { pct });
+    } else {
+      h.hp = 0;
+      heroDown(S);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1427,7 +1738,9 @@ function allyStep(S, a) {
       a.atkCd = a.atkTicks;
       a.atkAnim = 5;
       if (S.tideMod === 'evasive' && !target.big && S.rng() < 0.25) ev(S, 'dodge', { x: target.x, z: target.z });
-      else damageCreep(S, target, a.dmg, { spell: false });
+      // TIKI DRUMS carries to the summons — allies stay stat-frozen otherwise
+      // (auraDmgPct 0 → round(dmg × 1) is the integer it always was)
+      else damageCreep(S, target, Math.round(a.dmg * (1 + S.hero.auraDmgPct / 100)), { spell: false });
     }
   } else {
     // heel: drift back to the hero's side
@@ -1454,20 +1767,46 @@ function creepStep(S, c) {
   if (c.atkAnim > 0) c.atkAnim--;
   if (c.slowTicks > 0) c.slowTicks--;
   if (c.rootTicks > 0) c.rootTicks--;
+  if (c.stunTicks > 0) c.stunTicks--;
+  if (c.vulnTicks > 0) c.vulnTicks--;
+  if (c.weakenTicks > 0) c.weakenTicks--;
+  if (c.missTicks > 0) c.missTicks--;
+
+  // WS3 venom: fractional damage accrues every tick, lands in 0.5s chunks so
+  // the floats stay chunky, not rain. The carry survives chunk boundaries and
+  // reapplication — the total is tick-exact. A DoT kill pays like any kill.
+  if (c.dotTicks > 0) {
+    c.dotTicks--;
+    c.dotAcc += c.dotPerSec * TICK_S;
+    if (c.dotTicks % 10 === 0 || c.dotTicks === 0) {
+      const chunk = Math.floor(c.dotAcc);
+      if (chunk > 0) {
+        c.dotAcc -= chunk;
+        damageCreep(S, c, chunk, { kind: 'dot' });
+      }
+      if (c.dotTicks === 0) { c.dotPerSec = 0; c.dotAcc = 0; }
+    }
+    if (c.dead) return;
+  }
 
   if (c.receding) {                     // the sea takes them back
     c.z -= (c.ms * 1.7) * TICK_S;
     return;
   }
 
+  // WS3 stun: stopped OUTRIGHT — feet, claws, and a boss's slam windup all
+  // hold until it wears off (unlike root, which only ever held feet)
+  if (c.stunTicks > 0) return;
+
   // the boss winds up a slam wherever its target stands (§6 readable telegraphs)
   if (c.big && c.slamCdMax) bossAbility(S, c);
 
   // nearest defender: the hero, or a golem standing closer. Ties break on id;
-  // the hero is id 0 and wins them all.
+  // the hero is id 0 and wins them all. A hero under SQUID INK is unseeable —
+  // the tide falls back to its no-defender march while the cover holds.
   const h = S.hero;
   let tgt = null, tgtD = Infinity, tgtHero = false;
-  if (!h.dead) {
+  if (!h.dead && !(h.hideTicks > 0)) {
     const dx = h.x - c.x, dz = h.z - c.z;
     tgt = h; tgtD = dx * dx + dz * dz; tgtHero = true;
   }
@@ -1490,17 +1829,25 @@ function creepStep(S, c) {
     if (c.atkCd <= 0) {
       c.atkCd = c.atkTicks;
       c.atkAnim = 5;
-      if (tgtHero) {
-        hurtHero(S, c.dmg, c);
-        // BASH CRABS: hits can stun (modifier, §6)
-        if (S.tideMod === 'bash' && !c.big && !S.hero.dead && S.rng() < 0.2) {
-          S.hero.stun = secs(0.8);
-          ev(S, 'stun', { sec: 0.8 });
-        }
+      // WS3 GULL SWARM: a blinded creep whiffs — the roll exists ONLY while
+      // the debuff runs (classic runs never draw it). WS3 FOGHORN: a weakened
+      // creep swings soft. Both apply to swings at the hero AND at summons.
+      if (c.missTicks > 0 && S.rng() < c.missPct / 100) {
+        ev(S, 'dodge', { x: tgt.x, z: tgt.z });
       } else {
-        tgt.hp -= c.dmg;
-        tgt.hitFlash = 3;
-        if (tgt.hp <= 0) tgt.dead = true;
+        const cdmg = c.weakenTicks > 0 ? Math.max(1, Math.round(c.dmg * (1 - c.weakenPct / 100))) : c.dmg;
+        if (tgtHero) {
+          hurtHero(S, cdmg, c);
+          // BASH CRABS: hits can stun (modifier, §6)
+          if (S.tideMod === 'bash' && !c.big && !S.hero.dead && S.rng() < 0.2) {
+            S.hero.stun = secs(0.8);
+            ev(S, 'stun', { sec: 0.8 });
+          }
+        } else {
+          tgt.hp -= cdmg;
+          tgt.hitFlash = 3;
+          if (tgt.hp <= 0) tgt.dead = true;
+        }
       }
       if (S.hero.dead) return;
     }
@@ -1519,7 +1866,8 @@ function bossAbility(S, c) {
   if (c.slamCd > 0) { c.slamCd--; }
   else {
     const h = S.hero;
-    if (!h.dead) {
+    // a hidden hero can't be AIMED at — slams already falling still land (honest)
+    if (!h.dead && !(h.hideTicks > 0)) {
       const dx = h.x - c.x, dz = h.z - c.z;
       if (dx * dx + dz * dz <= 5.5 * 5.5) {
         c.slamCd = c.slamCdMax;

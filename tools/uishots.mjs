@@ -277,6 +277,84 @@ const main = async () => {
   await sleep(800);
   await snap('feel-missile.png');
 
+  // 7.5 WS3 ABILITIES — the pool's proof frames: a pack stunned pale-yellow
+  // under a SANDSPOUT (the new stun grammar), THE DROWNED TIDE mid-raise,
+  // and a scrolled 11-row rack (the "racks stay browsable" receipt).
+  await evalJs(`(()=>{
+    RESORT.pause(true);
+    RESORT.setSeed('ws3-stun-shot');
+    RESORT.pickBody('wrestler');
+    RESORT.givePearls(10);
+    RESORT.buySpell('conchcrack');
+    RESORT.buySpell('sandspout');
+    RESORT.skipTide();
+    RESORT.runTicks(2);
+    const S = RESORT.state;
+    S.quota = 9999; S.spawned = 9999;
+    RESORT.spawn(7, 'crab');
+    let k = 0;
+    for (const c of S.creeps) {
+      c.x = S.hero.x - 2.2 + (k % 4) * 1.5; c.z = S.hero.z - 2.0 - Math.floor(k / 4) * 1.4;
+      c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000; k++;
+    }
+    const slot = ['Q','W','E'].find(x => S.slots[x] === 'sandspout');
+    RESORT.cast(slot, S.hero.x, S.hero.z);
+    RESORT.runTicks(4);   // hitFlash (3 ticks) expires -> the PALE-YELLOW stun tint owns the pack
+    return S.creeps.filter(c => c.stunTicks > 0).length;
+  })()`);
+  await sleep(220);        // the yellow stun ring expands into frame...
+  await evalJs('(RESORT.fx.freeze(20000), 1)');   // ...then the clock stops for the camera
+  await sleep(500);
+  await snap('ws3-stun.png');
+  await evalJs('(RESORT.fx.freeze(0), 1)');
+
+  await evalJs(`(()=>{
+    const S = RESORT.state;
+    RESORT.setSeed('ws3-drowned-shot');
+    RESORT.pickBody('wrestler');
+    RESORT.givePearls(20);
+    const S2 = RESORT.state;
+    S2.tide = 7; S2.cleared = 7; S2.phase = 'BREAK'; S2.phaseTicks = 30;
+    RESORT.buySpell('drownedtide');
+    let g = 0;
+    while (S2.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S2.quota = 9999; S2.spawned = 9999;
+    RESORT.spawn(4, 'crab');
+    for (const c of S2.creeps) if (!c.dead) {
+      c.x = S2.hero.x + 1.2; c.z = S2.hero.z - 1.2; c.px = c.x; c.pz = c.z; c.hp = 1;
+    }
+    g = 0;
+    while (S2.corpses.length < 3 && g++ < 120) RESORT.runTicks(1);
+    RESORT.cast('R', S2.hero.x, S2.hero.z);
+    RESORT.runTicks(2);
+    return S2.allies.filter(a => a.kind === 'drowned').length;
+  })()`);
+  await sleep(900);
+  await snap('ws3-drowned.png');
+
+  await evalJs(`(()=>{
+    RESORT.setSeed('ws3-rack-shot');
+    RESORT.pickBody('diver');
+    RESORT.givePearls(9);
+    RESORT.buySpell('lifebloom');
+    RESORT.buySpell('rootvine');
+    RESORT.state.hero.x = -6.5; RESORT.state.hero.z = 6; 1;   // the GUARD rack counter
+    return RESORT.state.phase;
+  })()`);
+  await evalJs(`(async()=>{
+    for (let i = 0; i < 40; i++) {
+      if (document.getElementById('sheet').classList.contains('show')
+        && document.querySelectorAll('#sheet-rows .srow').length >= 11) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    document.getElementById('sheet-rows').scrollTop = 170;   // mid-rack: the wall of spells
+    return document.querySelectorAll('#sheet-rows .srow').length; })()`);
+  await sleep(600);
+  await snap('ws3-rack.png');
+  await evalJs('RESORT.state.hero.x = 0; RESORT.state.hero.z = -14; 1');
+  await sleep(500);
+
   // 8. WS2 MOBILE — the phone frames at 844×390 under real touch emulation:
   // a built hero mid-tide with ZERO floating buttons (the workstream's
   // poster) and the compact market break. IS_TOUCH sniffs at boot, so the

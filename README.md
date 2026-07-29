@@ -13,7 +13,23 @@ A zero-install browser game — one page, three.js, **no build step, no backend*
 
 ---
 
-## Status — P0 COMPLETE + REV 1 (the squares & the market) + REV 2 WS1 (combat feel) + WS2 (mobile layout)
+## Status — P0 COMPLETE + REV 1 (the squares & the market) + REV 2 WS1 (combat feel) + WS2 (mobile layout) + WS3 (abilities)
+
+**Rev 2 WS3 (v0.7.0)** filled the pool: **38 spells** on the same four racks,
+executed by the same ONE engine. The racks grew every classic mechanic family,
+island-spun — a stunning conch bolt and a sand-spout nova, a lane-tearing
+ripcurrent, a life-drinking kiss, shell-cracking vulnerability, a damage-sapping
+foghorn and a swing-blinding gull swarm, a heal-over-time salve, a **gold-burning
+ward** (damage bites your purse — the ledger law holds by construction), squid-ink
+stealth, venom / cleave / wave-break / pinch-stun on-hit riders, an ember ring, a
+drum aura that feeds your summons, a cooldown-rate aura that stacks with ENCORE,
+**corpse-raising** (kills leave six-second corpses; THE DROWNED TIDE eats up to
+five of them and raises drowned crabs where the bodies lay), a boss-sized root,
+and **SECOND SUNRISE** — an R-slot passive that takes your first death and then
+sleeps. Stuns and roots always land at half strength on bosses. There is no
+spell resource and never will be: costs are cooldowns, gold, corpses and
+drawbacks. Same 15 pearls a run against 38 rows — breadth pressure IS the
+design. Classic-build runs stay byte-identical.
 
 **Rev 2 WS2 (v0.6.0)** made the HUD **context-sensitive** — chrome earns its
 pixels per phase, or it dies. A fresh run mid-tide shows **zero buttons**: the
@@ -56,7 +72,7 @@ spectacle — the P0 slice is whole.
 | | |
 |---|---|
 | ✅ link 1 | island cove scene, 20Hz deterministic sim, click-to-move hero with auto-attack, tide/surf-set spawner, shop-break loop, gold + pearls, `RESORT.*` debug API, headless CDP smoke test, i18n rails, `?v=` cache-bust |
-| ✅ link 2 | **THE FORGE** (3 bodies, each a statline + one tiny innate) · **16 spells as shop items** on four walkable boardwalk racks (STRIKE / GUARD / CURRENT / DEEP), all driven by ONE data-driven engine · pearls buy breadth, XP → skill points → ranks buy depth · **100g Tide Tablet respec** (full pearl refund — sacred) · fruit stand (3 stats, rank 50) · Surf Shack (8 items, 6 slots) · QWER smart-cast at the hover point + cooldown HUD · **boss tides 5 & 10** with reduced quotas · **modifier tides** from 6 (Bash Crabs / Evasive Monkeys / Splitting Jellies) · tide 10 finale + victory screen |
+| ✅ link 2 | **THE FORGE** (3 bodies, each a statline + one tiny innate) · **spells as shop items** (16 then; 38 since rev-2 WS3) on four walkable boardwalk racks (STRIKE / GUARD / CURRENT / DEEP), all driven by ONE data-driven engine · pearls buy breadth, XP → skill points → ranks buy depth · **100g Tide Tablet respec** (full pearl refund — sacred) · fruit stand (3 stats, rank 50) · Surf Shack (8 items, 6 slots) · QWER smart-cast at the hover point + cooldown HUD · **boss tides 5 & 10** with reduced quotas · **modifier tides** from 6 (Bash Crabs / Evasive Monkeys / Splitting Jellies) · tide 10 finale + victory screen |
 | ✅ link 3 | **THE GHOST RACE** — your best run persists locally, the standings board is always on screen racing you tide-for-tide, lead changes get called in the ticker · **DAILY TIDE** (one fixed seed all day, apples-to-apples) · title screen wordmark over the vista · **death spectacle** (camera pulls to the postcard + a washed-up-next-tide countdown — death is never a logout) · WebAudio steel-pan idle + drum swells, all synthesized · gold-hour rim light on milestone tides · lifeguard hint ticker · static dressing baked to ~12 draw calls |
 
 ### Controls
@@ -108,7 +124,7 @@ Two more that earned their place the hard way:
 ```
 index.html            shell, FFX-era UI skin, ?v= stamped import map
 js/rng.js             mulberry32 + the versioned seed object
-js/data.js            THE CONTENT — bodies, 16 spell rows, items, fruit, mods, stalls
+js/data.js            THE CONTENT — bodies, 38 spell rows, items, fruit, mods, stalls
 js/sim.js             THE SIM — pure, deterministic, testable in node
 js/scene.js           the island: squares, market, palette, zone camera, draw
 js/shop.js            the market UI: forge, racks, castaway sheet, victory
@@ -120,10 +136,15 @@ tools/shopper.mjs     balance matrix: STAND (run-1 proxy) vs KITE (run-3 proxy)
 bump.sh               stamp a new ?v= before every push
 ```
 
-**One spell engine, sixteen data rows.** Every spell in `js/data.js` is a descriptor
-(`proj` / `nova` / `aoe` / `chain` / `shield` / `heal` / `dash` / `rain` / `buff` /
-`summon` / `passive`) interpreted by one function in the sim — the CHS content cheat
-code, kept as law. Rank scaling is one rule everywhere: `value = a + b × (rank-1)`.
+**One spell engine, thirty-eight data rows.** Every spell in `js/data.js` is a
+descriptor (`proj` / `bolt` / `line` / `nova` / `aoe` / `chain` / `shield` /
+`goldshield` / `heal` / `hide` / `dash` / `rain` / `buff` / `summon` / `passive`)
+interpreted by one function in the sim — the CHS content cheat code, kept as law.
+Rank scaling is one rule everywhere: `value = a + b × (rank-1)`. Passive riders
+cover crit/lifesteal/haste/thorns plus the WS3 set: flat damage reduction, dodge,
+on-hit poison/cleave/proc/pinch, a burn ring, damage + cooldown auras, and
+cheat-death. Status verbs on creeps: slow, root, stun, vulnerability, weaken,
+miss — bosses always take stuns and roots at half duration.
 
 ## Running it
 

@@ -964,6 +964,16 @@ export function createScene(canvas, COVE, MARKET) {
     golems.push(g);
   }
 
+  // --- THE DROWNED (WS3): small dark crab silhouettes for THE DROWNED TIDE —
+  // one instanced pool, cap 6 (+1 draw call, aesthetic call B1: reads "crab,
+  // wrong colour" and never muddies the REEF GOLEM's identity). ---
+  const DROWNED_CAP = 6;
+  const drownedMesh = new THREE.InstancedMesh(creepProto('crab'), lam(0x3E4E56), DROWNED_CAP);
+  drownedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  drownedMesh.count = 0;
+  drownedMesh.frustumCulled = false;
+  scene.add(drownedMesh);
+
   // --- SPELL PROJECTILES: one glowing instanced batch, coloured by rack. ---
   const PROJ_CAP = 64;
   const projMesh = new THREE.InstancedMesh(
@@ -1160,6 +1170,9 @@ export function createScene(canvas, COVE, MARKET) {
   const heroCol = C(PAL.hero);
   const slowCol = C(0x9FD8FF);     // FROST SNAP's ice
   const rootCol = C(0xB6FF9A);     // ROOT VINE's grip
+  const stunCol = C(0xFFE895);     // WS3 stun: pale yellow, the hero's grammar
+                                   // (bright-creamy — instance tints MULTIPLY,
+                                   // so it must lift even an orange crab)
   const avatarCol = C(0xFF6A3C);   // the volcano, worn
   const BLOB_CAP = CREEP_CAP + 8;
   let camShake = 0;
@@ -1454,8 +1467,9 @@ export function createScene(canvas, COVE, MARKET) {
       m4.compose(vPos.set(cx, hop * base, cz), q,
         vScl.set(base * sx, base * sy, base * sz));
       im.setMatrixAt(i, m4);
-      // status tints: hit flash beats ice beats roots beats plain white
+      // status tints: hit flash beats stun beats ice beats roots beats white
       im.setColorAt(i, c.hitFlash > 0 ? flash
+        : c.stunTicks > 0 ? stunCol
         : c.slowTicks > 0 ? slowCol
         : c.rootTicks > 0 ? rootCol : white);
       counts[c.skin] = i + 1;
@@ -1511,10 +1525,26 @@ export function createScene(canvas, COVE, MARKET) {
       }
     }
 
-    // --- allies: the golem pool ---
+    // --- allies: golems keep their pool of 2; the drowned ride their own
+    // instanced batch (WS3), routed by a.kind ---
     for (const g of golems) g.visible = false;
-    for (let i = 0; i < S.allies.length && i < golems.length; i++) {
-      const a = S.allies[i];
+    let gi = 0, dn = 0;
+    for (const a of S.allies) {
+      if (a.kind === 'drowned') {
+        if (dn >= DROWNED_CAP) continue;
+        const ax = lerp(a.px, a.x) + zoneOff.x, az = lerp(a.pz, a.z) + zoneOff.z;
+        const hop = Math.abs(Math.sin(tSec * 5.4 + a.id)) * 0.1;
+        q.setFromAxisAngle(UP, a.facing);
+        m4.compose(vPos.set(ax, hop, az), q, vScl.set(0.72, 0.72, 0.72));
+        drownedMesh.setMatrixAt(dn++, m4);
+        if (blobN < BLOB_CAP) {
+          m4.compose(vPos.set(ax, 0.02, az), IDENT_Q, vScl.set(1.0, 1, 1.0));
+          blobs.setMatrixAt(blobN++, m4);
+        }
+        continue;
+      }
+      if (gi >= golems.length) continue;
+      const i = gi++;
       const g = golems[i];
       g.visible = true;
       const ax = lerp(a.px, a.x) + zoneOff.x, az = lerp(a.pz, a.z) + zoneOff.z;
@@ -1546,6 +1576,8 @@ export function createScene(canvas, COVE, MARKET) {
         blobs.setMatrixAt(blobN++, m4);
       }
     }
+    drownedMesh.count = dn;
+    drownedMesh.instanceMatrix.needsUpdate = true;
     blobs.count = blobN;
     blobs.instanceMatrix.needsUpdate = true;
 
@@ -1556,14 +1588,21 @@ export function createScene(canvas, COVE, MARKET) {
       const px = lerp(p.px, p.x) + zoneOff.x, pz2 = lerp(p.pz, p.z) + zoneOff.z;
       const wob = 1 + Math.sin(tSec * 22 + p.id) * 0.18;
       // WS1: the basic missile LOBS — a render-side arc over the sim's flat
-      // line — with a warm tracer so the racks keep their spell colours
-      let py = 1.15, ps = wob;
-      if (p.kind === 'basic') {
-        const lk = Math.min(1, (p.traveled || 0) / (p.maxDist || 1));
-        py = 1.3 + Math.sin(lk * Math.PI) * 0.9;
-        ps = wob * 0.85;
+      // line — with a warm tracer so the racks keep their spell colours.
+      // WS3: the LINE stretches its instance along the travel axis instead —
+      // same mesh, zero new draw calls, reads as a rushing crest.
+      if (p.kind === 'line') {
+        q.setFromAxisAngle(UP, Math.atan2(p.dx, p.dz));
+        m4.compose(vPos.set(px, 0.55, pz2), q, vScl.set(4.2, 0.55, 2.4));
+      } else {
+        let py = 1.15, ps = wob;
+        if (p.kind === 'basic') {
+          const lk = Math.min(1, (p.traveled || 0) / (p.maxDist || 1));
+          py = 1.3 + Math.sin(lk * Math.PI) * 0.9;
+          ps = wob * 0.85;
+        }
+        m4.compose(vPos.set(px, py, pz2), IDENT_Q, vScl.set(ps, ps, ps));
       }
-      m4.compose(vPos.set(px, py, pz2), IDENT_Q, vScl.set(ps, ps, ps));
       projMesh.setMatrixAt(pn, m4);
       projMesh.setColorAt(pn, p.kind === 'basic' ? basicGlow : (CAT_GLOW[p.cat] || white));
       pn++;
