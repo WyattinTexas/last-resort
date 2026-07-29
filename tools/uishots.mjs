@@ -189,6 +189,91 @@ const main = async () => {
   await sleep(2600);
   await snap('washout.png');
 
+  // 7. WS1 COMBAT FEEL — the frames that prove the swing cycle shipped:
+  // a held windup, an impact with sparks + a corpse mid-sink, the stun
+  // stars, and a basic missile lobbed mid-flight.
+  await evalJs(`(()=>{
+    RESORT.pause(true);
+    RESORT.setSeed('feel-windup');
+    RESORT.pickBody('wrestler');
+    RESORT.skipTide();
+    RESORT.runTicks(2);
+    const S = RESORT.state;
+    RESORT.spawn(6, 'crab');
+    let k = 0;
+    for (const c of S.creeps) {
+      c.x = S.hero.x - 2.6 + (k % 3) * 2.6; c.z = S.hero.z - 2.3 - Math.floor(k / 3) * 1.2;
+      c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000; k++;
+    }
+    let g = 0;
+    while (g++ < 300 && !(S.hero.atkCd === 1 && S.hero.atkAnim === 0)) RESORT.runTicks(1);
+    return { cd: S.hero.atkCd, anim: S.hero.atkAnim };
+  })()`);
+  await sleep(900);
+  await snap('feel-windup.png');
+
+  // FREEZE the presentation clock FIRST, then drive a real kill through
+  // runTicks: the sparks and the fresh corpse are born under dt=0 and hold
+  // at full brightness for the camera. (Live timing loses: one SwiftShader
+  // frame can swallow a whole spark lifetime.)
+  await evalJs(`(async()=>{
+    const S = RESORT.state;
+    S.hero.swingN = 5;                             // the 6th swing crits: gold burst
+    for (const c of S.creeps) c.hp = 1;
+    RESORT.fx.freeze(20000);
+    const k0 = S.kills;
+    let g = 0;
+    while (S.kills === k0 && g++ < 80) RESORT.runTicks(1);
+    for (let i = 0; i < 30; i++) {                 // the kill drains on a rAF
+      if (RESORT.fx.sparks > 0) break;
+      await new Promise(r => setTimeout(r, 40));
+    }
+    // The kill's own burst is born exactly under the damage float's text and
+    // SwiftShader frame pacing eats any live spray window before the camera
+    // fires — so stage the same production burst, same popSparks, same power,
+    // at the impact's flanks where a 60fps player sees it mid-flight.
+    const hx = S.hero.x, hz = S.hero.z;
+    RESORT.sceneApi.popSparks(hx - 1.7, 1.25, hz - 0.9, 0xFFD24A, 6, 1.6);
+    RESORT.sceneApi.popSparks(hx + 1.7, 1.2, hz - 1.2, 0xFFE9B0, 5, 1.15);
+    return RESORT.fx.sparks; })()`);
+  await snap('feel-impact.png');
+  // let the corpse age into its sink, then hold it for its own frame
+  await evalJs(`(async()=>{
+    RESORT.fx.freeze(0);
+    await new Promise(r => setTimeout(r, 420));
+    RESORT.fx.freeze(4000);
+    return true; })()`);
+  await snap('feel-corpse.png');
+  await evalJs('(RESORT.fx.freeze(0), RESORT.pause(true), 1)');
+
+  await evalJs('(()=>{ RESORT.pause(true); RESORT.state.hero.stun = 60; return 1; })()');
+  await sleep(600);
+  await snap('feel-stun.png');
+
+  await evalJs(`(()=>{
+    RESORT.state.hero.stun = 0;
+    RESORT.setSeed('feel-missile');
+    RESORT.pickBody('magician');
+    RESORT.skipTide();
+    RESORT.runTicks(2);
+    const S = RESORT.state;
+    RESORT.spawn(3, 'crab');
+    for (let i = 0; i < S.creeps.length; i++) {
+      const c = S.creeps[i];
+      c.x = S.hero.x - 1.5 + i * 1.5; c.z = S.hero.z - 5.2 - i * 0.6;
+      c.px = c.x; c.pz = c.z;
+    }
+    let g = 0;
+    while (g++ < 60) {
+      RESORT.runTicks(1);
+      const m = S.projs.find(p => p.kind === 'basic');
+      if (m && m.traveled > 1.5 && m.traveled < m.maxDist * 0.75) break;
+    }
+    return S.projs.length;
+  })()`);
+  await sleep(800);
+  await snap('feel-missile.png');
+
   console.log('\ndone\n');
 };
 

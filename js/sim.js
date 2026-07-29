@@ -111,6 +111,15 @@ export const TUNE = {
   heroAcquire: 7.0,       // idle auto-acquire radius (classic-RTS acquisition feel)
   heroArrive: 0.16,
 
+  // --- ranged basics (rev 2 WS1): the wand LOBS A REAL MISSILE now. Speed 30
+  // puts max-range flight at ~0.26s; retargetR is how far a missile will swing
+  // to a neighbour when its target dies mid-flight (else it fizzles). These two
+  // numbers are the whole DPS surface of the change — tune here, nowhere else.
+  // Measured: at speed 26 the magician's full run came in 10.8s FAST (slower
+  // missiles let packs bunch tighter around the hero, so the nova/aoe casts
+  // hit more bodies); 30 reproduces the instant-zap pacing to +0.3s.
+  basicMissile: { speed: 30, retargetR: 2.5 },
+
   // --- creeps: ONE stat template, skin-swapped, script-scaled (§6/§2) ---
   creep: {
     baseHp: 100,
@@ -739,7 +748,7 @@ function onCreepKilled(S, c) {
   S.kills++;
   S.killed++;
   gainXp(S, Math.max(1, Math.round(killXp(S.tide) * c.xpMult)));
-  ev(S, 'kill', { id: c.id, x: c.x, z: c.z, gold: bounty, skin: c.skin, big: c.big });
+  ev(S, 'kill', { id: c.id, x: c.x, z: c.z, gold: bounty, skin: c.skin, big: c.big, mini: c.mini });
   if (c.big) ev(S, 'boss_down', { name: c.bossName });
   // RIPTIDE FEET (Pearl Diver innate): kills grant a burst of speed.
   if (S.bodyId === 'diver') addBuff(S, { id: 'riptide', ticks: secs(1.5), mods: { msMult: 1.45 } });
@@ -1048,7 +1057,9 @@ function castSpell(S, slotKey, ax, az) {
         slowPct: fx.slowPct ? rv(fx.slowPct, rank) : 0, slowSec: fx.slowSec || 0,
         rootSec: fx.rootSec ? rv(fx.rootSec, rank) : 0,
       });
-      ev(S, 'aoe_hit', { x: ax, z: az, r, cat: sp.cat });
+      // slow/root flags let the state change have a BIRTH on screen (WS1) —
+      // a crackle ring at the blast, not just a tint that was suddenly there
+      ev(S, 'aoe_hit', { x: ax, z: az, r, cat: sp.cat, slow: !!fx.slowPct, root: !!fx.rootSec });
       break;
     }
     case 'chain': {
@@ -1176,6 +1187,41 @@ function nearestCreepTo(S, x, z, maxD, exclude) {
 function stepProjectiles(S) {
   for (const p of S.projs) {
     if (p.dead) continue;
+
+    // The ranged BASIC (kind:'basic', rev 2 WS1) homes on its target's current
+    // position. Target died mid-flight? Swing to the nearest living creep
+    // within retargetR (deterministic lowest-id tie-break, same as every other
+    // nearest), else fizzle silently — overkill shots simply vanish. Damage,
+    // crit and lifesteal land on CONNECT. WS3 ranged creeps inherit this lane.
+    if (p.kind === 'basic') {
+      let tgt = null;
+      for (const c of S.creeps) {
+        if (c.id === p.tgt) { if (!c.dead && !c.receding) tgt = c; break; }
+      }
+      if (!tgt) {
+        tgt = nearestCreepTo(S, p.x, p.z, TUNE.basicMissile.retargetR, null);
+        if (!tgt) { p.dead = true; continue; }
+        p.tgt = tgt.id;
+        // the render lob normalises on maxDist; keep it honest across a retarget
+        p.maxDist = Math.max(p.maxDist, p.traveled + Math.hypot(tgt.x - p.x, tgt.z - p.z));
+      }
+      const dx = tgt.x - p.x, dz = tgt.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d <= 0.45 + tgt.radius) {
+        p.dead = true;
+        damageCreep(S, tgt, p.dmg, { kind: 'shot', crit: p.crit });
+        const h = S.hero;
+        if (h.lifesteal > 0 && !h.dead) h.hp = Math.min(h.maxHp, h.hp + p.dmg * (h.lifesteal / 100));
+        ev(S, 'proj_hit', { x: p.x, z: p.z, r: 0.5, basic: true });
+        continue;
+      }
+      const step = Math.min(d, p.speed * TICK_S);
+      p.x += (dx / d) * step;
+      p.z += (dz / d) * step;
+      p.traveled += step;
+      continue;
+    }
+
     const step = p.speed * TICK_S;
     p.x += p.dx * step;
     p.z += p.dz * step;
@@ -1199,11 +1245,11 @@ function stepProjectiles(S) {
     if (p.aoe > 0) {
       // burst where it landed — on the creep it met, or at the aim point
       areaDamage(S, p.x, p.z, p.aoe, p.dmg, { slowPct: p.slowPct, slowSec: p.slowSec });
-      ev(S, 'proj_hit', { x: p.x, z: p.z, r: p.aoe, cat: p.cat });
+      ev(S, 'proj_hit', { x: p.x, z: p.z, r: p.aoe, cat: p.cat, slow: p.slowPct > 0 });
     } else if (hit) {
       damageCreep(S, hit, p.dmg, { spell: true });
       if (p.slowPct) { hit.slowTicks = secs(p.slowSec); hit.slowMult = 1 - p.slowPct / 100; }
-      ev(S, 'proj_hit', { x: p.x, z: p.z, r: 0.6, cat: p.cat });
+      ev(S, 'proj_hit', { x: p.x, z: p.z, r: 0.6, cat: p.cat, slow: p.slowPct > 0 });
     }
   }
 }
@@ -1303,8 +1349,25 @@ function heroBasicHit(S, c) {
   if (S.bodyId === 'wrestler' && h.swingN % 6 === 0) { dmg *= 2; crit = true; }   // SUPLEX TIMING
   if (h.crit > 0 && S.rng() < h.crit / 100) { dmg *= 2; crit = true; }
   dmg = Math.round(dmg);
-  // the magician's swing is a wand zap from range 7 — same numbers, longer arm
-  if (h.range >= 5) ev(S, 'zap', { x0: h.x, z0: h.z, x1: c.x, z1: c.z });
+  // A ranged basic (the wand, range >= 5) lobs a REAL missile now (rev 2 WS1):
+  // the swing's damage rides it and lands on CONNECT, a few ticks out. Every
+  // roll happens here at trigger, in the same order as the melee path — dodge
+  // then crit — so the RNG stream keeps its exact shape. Lifesteal rides the
+  // connect too (stepProjectiles), same magnitude, just later.
+  if (h.range >= 5) {
+    S.projs.push({
+      id: S.nextId++,
+      kind: 'basic',
+      x: h.x, z: h.z, px: h.x, pz: h.z,
+      tgt: c.id,
+      speed: TUNE.basicMissile.speed,
+      traveled: 0,
+      maxDist: Math.max(0.1, Math.hypot(c.x - h.x, c.z - h.z)),
+      dmg, crit, dead: false,
+    });
+    ev(S, 'shot', { id: c.id, x0: h.x, z0: h.z });
+    return;
+  }
   damageCreep(S, c, dmg, { spell: false, crit });
   if (h.lifesteal > 0 && !h.dead) {
     S.hero.hp = Math.min(h.maxHp, h.hp + dmg * (h.lifesteal / 100));
@@ -1314,7 +1377,10 @@ function heroBasicHit(S, c) {
 function damageCreep(S, c, amount, opts) {
   c.hp -= amount;
   c.hitFlash = 3;
-  ev(S, 'hit', { id: c.id, x: c.x, z: c.z, amount, fatal: c.hp <= 0, crit: !!(opts && opts.crit) });
+  // kind rides every hit so the presentation can pick its spark and its sound:
+  // 'melee' (a swing), 'shot' (a basic missile connecting), 'spell'.
+  ev(S, 'hit', { id: c.id, x: c.x, z: c.z, amount, fatal: c.hp <= 0, crit: !!(opts && opts.crit),
+    kind: (opts && opts.kind) || (opts && opts.spell ? 'spell' : 'melee') });
   if (c.hp <= 0) { c.hp = 0; c.dead = true; }   // LAW 3: marked only. Swept at tick end.
 }
 
@@ -1429,7 +1495,7 @@ function creepStep(S, c) {
         // BASH CRABS: hits can stun (modifier, §6)
         if (S.tideMod === 'bash' && !c.big && !S.hero.dead && S.rng() < 0.2) {
           S.hero.stun = secs(0.8);
-          ev(S, 'stun', {});
+          ev(S, 'stun', { sec: 0.8 });
         }
       } else {
         tgt.hp -= c.dmg;

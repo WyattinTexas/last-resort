@@ -142,6 +142,10 @@ body.titleup #forge{display:none}   /* the postcard, not the menu, sells the tit
 .slot.big{width:64px; height:64px; border-color:var(--gold)}
 .slot.poke{animation:poke .18s ease-out}
 @keyframes poke{from{transform:translateY(0)} 50%{transform:translateY(-5px)} to{transform:translateY(0)}}
+/* WS1: stunned — the whole cast bar grays out and shudders until it wears off */
+#bar.stunned .slot{filter:grayscale(.9) brightness(.65)}
+#bar.stunned{animation:stunshake .32s ease-in-out infinite}
+@keyframes stunshake{0%,100%{transform:translateX(-50%)} 25%{transform:translateX(calc(-50% - 2px))} 75%{transform:translateX(calc(-50% + 2px))}}
 #barnote{position:absolute; left:50%; transform:translateX(-50%); bottom:calc(76px + var(--sab));
          font-size:10px; letter-spacing:.14em; color:rgba(231,194,92,.72); font-weight:700; white-space:nowrap}
 
@@ -453,19 +457,19 @@ body.touch #tbtns{display:flex}
   </div>
 </div>
 
-<script>window.__RESORT_BUILD='20260728193149';</script>
+<script>window.__RESORT_BUILD='20260728205837';</script>
 <script type="importmap">
 {
   "imports": {
-    "three":        "./vendor/three.module.min.js?v=20260728193149",
-    "./js/i18n.js": "./js/i18n.js?v=20260728193149",
-    "./js/rng.js":  "./js/rng.js?v=20260728193149",
-    "./js/data.js": "./js/data.js?v=20260728193149",
-    "./js/sim.js":  "./js/sim.js?v=20260728193149",
-    "./js/scene.js":"./js/scene.js?v=20260728193149",
-    "./js/shop.js": "./js/shop.js?v=20260728193149",
-    "./js/ghost.js":"./js/ghost.js?v=20260728193149",
-    "./js/audio.js":"./js/audio.js?v=20260728193149"
+    "three":        "./vendor/three.module.min.js?v=20260728205837",
+    "./js/i18n.js": "./js/i18n.js?v=20260728205837",
+    "./js/rng.js":  "./js/rng.js?v=20260728205837",
+    "./js/data.js": "./js/data.js?v=20260728205837",
+    "./js/sim.js":  "./js/sim.js?v=20260728205837",
+    "./js/scene.js":"./js/scene.js?v=20260728205837",
+    "./js/shop.js": "./js/shop.js?v=20260728205837",
+    "./js/ghost.js":"./js/ghost.js?v=20260728205837",
+    "./js/audio.js":"./js/audio.js?v=20260728205837"
   }
 }
 </script>
@@ -477,7 +481,7 @@ body.touch #tbtns{display:flex}
     if (d && !d.textContent) d.textContent = String((e && e.message) || e);
     document.getElementById('boot-error').classList.add('show');
   });
-  import('./js/game.js?v=20260728193149').catch(err => {
+  import('./js/game.js?v=20260728205837').catch(err => {
     document.getElementById('boot-error-detail').textContent = String(err && err.message || err);
     document.getElementById('boot-error').classList.add('show');
   });

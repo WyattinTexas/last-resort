@@ -473,6 +473,243 @@ const main = async () => {
   ok((await evalJs('document.getElementById("break-hint").textContent')).length > 6,
     'the lifeguard hint ticker is rotating real tips');
 
+  // --- 8.7 WS1 COMBAT FEEL: missiles, impacts, corpses, hitstop, audio ----
+  console.log('\nWS1 COMBAT FEEL — real missiles, corpse beat, hitstop, the kit');
+
+  // corpse beat first, while no earlier combat-lab residue is on the sand
+  await evalJs(`(()=>{
+    RESORT.setSeed('ws1-corpse');
+    RESORT.pickBody('wrestler');
+    RESORT.skipTide();
+    RESORT.runTicks(2);
+    const S = RESORT.state;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps[0];
+    c.x = S.hero.x; c.z = S.hero.z - 2; c.px = c.x; c.pz = c.z;
+    c.hp = 1;
+    let g = 0;
+    while (S.creeps.length && g++ < 60) RESORT.runTicks(1);
+    return S.kills;
+  })()`);
+  const corpseSeen = await evalJs(`(async()=>{
+    for (let i = 0; i < 20; i++) {
+      if (RESORT.fx.corpses > 0) return true;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    return false; })()`);
+  ok(corpseSeen, 'a kill leaves a corpse on the sand (RESORT.fx.corpses, polled)');
+  const corpseGone = await evalJs(`(async()=>{
+    for (let i = 0; i < 40; i++) {
+      if (RESORT.fx.corpses === 0) return true;
+      await new Promise(r => setTimeout(r, 60));
+    }
+    return false; })()`);
+  ok(corpseGone, 'the corpse sinks into the sand and frees its slot within ~1.5s');
+
+  // hit sparks off a landed swing (poll — SwiftShader frames can run ~10fps)
+  await evalJs(`(()=>{
+    const S = RESORT.state;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps[S.creeps.length - 1];
+    c.x = S.hero.x; c.z = S.hero.z - 2; c.px = c.x; c.pz = c.z;
+    c.hp = c.maxHp = 5000;
+    RESORT.runTicks(30);
+    return 1;
+  })()`);
+  const sparksSeen = await evalJs(`(async()=>{
+    for (let i = 0; i < 20; i++) {
+      if (RESORT.fx.sparks > 0) return true;
+      await new Promise(r => setTimeout(r, 40));
+    }
+    return false; })()`);
+  ok(sparksSeen, 'a landed swing pops hit sparks (RESORT.fx.sparks, polled)');
+
+  // hitstop: the wrestler's 6th-swing suplex is a forceable crit. The stop
+  // only engages on the LIVE clock (never during runTicks), so resume, watch
+  // the flag, pause again. hitstopActive is wall-clock state — polling reads
+  // it directly regardless of frame rate.
+  const stopSeen = await evalJs(`(async()=>{
+    const S = RESORT.state;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps[S.creeps.length - 1];
+    c.x = S.hero.x; c.z = S.hero.z - 2; c.px = c.x; c.pz = c.z;
+    c.hp = c.maxHp = 50000;
+    S.hero.swingN = 4;
+    RESORT.resume();
+    let seen = false;
+    for (let i = 0; i < 120 && !seen; i++) {
+      if (RESORT.fx.hitstopActive) seen = true;
+      await new Promise(r => setTimeout(r, 25));
+    }
+    RESORT.pause(true);
+    return seen; })()`);
+  ok(stopSeen, 'a suplex connect engages the selective macro-hitstop');
+  const stopTicks = await evalJs('(()=>{ const a = RESORT.state.tick; RESORT.runTicks(50); return RESORT.state.tick - a; })()');
+  ok(stopTicks === 50, 'runTicks bypasses the hitstop clock — tools never feel it', `advanced ${stopTicks}`);
+
+  // the wand basic is a REAL homing missile with travel time
+  const missile = await evalJs(`(()=>{
+    RESORT.setSeed('ws1-missile');
+    RESORT.pickBody('magician');
+    RESORT.skipTide();
+    RESORT.runTicks(2);
+    const S = RESORT.state;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps[0];
+    c.x = S.hero.x; c.z = S.hero.z - 6; c.px = c.x; c.pz = c.z;
+    const hp0 = c.hp;
+    let launchTick = -1, hpDropTick = -1, sawProj = false;
+    for (let i = 0; i < 60; i++) {
+      RESORT.runTicks(1);
+      const m = S.projs.find(p => p.kind === 'basic');
+      if (m && launchTick < 0) { launchTick = S.tick; sawProj = true; }
+      if (launchTick > 0 && hpDropTick < 0 && c.hp < hp0) { hpDropTick = S.tick; break; }
+    }
+    return { sawProj, flight: hpDropTick - launchTick, dmg: hp0 - c.hp, heroDmg: S.hero.dmg };
+  })()`);
+  ok(missile.sawProj, "the wand basic is a real projectile: S.projs gains a kind:'basic' entry");
+  ok(missile.flight >= 2, 'the missile takes real travel time (damage lands >= 2 ticks after launch)', `flight=${missile.flight} ticks`);
+  ok(missile.dmg === missile.heroDmg, 'connect damage equals the swing formula exactly (crit off)', `${missile.dmg} vs h.dmg=${missile.heroDmg}`);
+
+  // dead-target handling: retarget within 2.5m, else fizzle with zero damage
+  const fizzle = await evalJs(`(()=>{
+    RESORT.setSeed('ws1-fizzle');
+    RESORT.pickBody('magician');
+    RESORT.skipTide(); RESORT.runTicks(2);
+    const S = RESORT.state;
+    RESORT.spawn(2, 'crab');
+    const a = S.creeps[0], b = S.creeps[1];
+    a.x = 0; a.z = S.hero.z - 6.4; a.px = a.x; a.pz = a.z;
+    b.x = 1.0; b.z = S.hero.z - 6.4; b.px = b.x; b.pz = b.z;
+    let m = null, guard = 0;
+    while (!m && guard++ < 40) { RESORT.runTicks(1); m = S.projs.find(p => p.kind === 'basic'); }
+    if (!m) return { no: 'launch' };
+    const tgt0 = m.tgt;
+    const tgtA = S.creeps.find(c => c.id === tgt0);
+    const other = S.creeps.find(c => c.id !== tgt0 && !c.dead);
+    const otherHp0 = other ? other.hp : 0;
+    guard = 0;
+    while (guard++ < 30 && !m.dead) {           // fly until the NEIGHBOUR is in
+      if (other && Math.hypot(other.x - m.x, other.z - m.z) <= 2.2) break;   // retarget range
+      RESORT.runTicks(1);
+    }
+    if (m.dead) return { no: 'connected-early' };
+    tgtA.dead = true; tgtA.receded = true;
+    let redirected = false, t = 0;
+    while (!m.dead && t++ < 30) { RESORT.runTicks(1); if (m.tgt !== tgt0) redirected = true; }
+    const otherDropped = other && other.hp < otherHp0;
+    RESORT.setSeed('ws1-fizzle2');
+    RESORT.pickBody('magician');
+    RESORT.skipTide(); RESORT.runTicks(2);
+    const S2 = RESORT.state;
+    RESORT.spawn(1, 'crab');
+    const solo = S2.creeps[0];
+    solo.x = 0; solo.z = S2.hero.z - 6.4; solo.px = solo.x; solo.pz = solo.z;
+    let m2 = null; guard = 0;
+    while (!m2 && guard++ < 40) { RESORT.runTicks(1); m2 = S2.projs.find(p => p.kind === 'basic'); }
+    if (!m2) return { no: 'launch2' };
+    solo.dead = true; solo.receded = true;
+    const hpBefore = S2.creeps.filter(c => !c.dead).reduce((s, c) => s + c.hp, 0);
+    let t2 = 0;
+    while (!m2.dead && t2++ < 30) RESORT.runTicks(1);
+    const hpAfter = S2.creeps.filter(c => !c.dead).reduce((s, c) => s + c.hp, 0);
+    return { redirected, otherDropped, fizzled: m2.dead, leaked: hpBefore - hpAfter };
+  })()`);
+  ok(fizzle.redirected === true && fizzle.otherDropped === true,
+    'a missile whose target died retargets a neighbour within 2.5m', JSON.stringify({ redirected: fizzle.redirected, no: fizzle.no }));
+  ok(fizzle.fizzled === true && fizzle.leaked === 0,
+    'with no neighbour in reach it fizzles silently — zero damage leaks', `leaked=${fizzle.leaked}`);
+
+  // lifesteal pays on CONNECT, not at launch
+  const steal = await evalJs(`(()=>{
+    RESORT.setSeed('ws1-steal');
+    RESORT.pickBody('magician');
+    const S = RESORT.state;
+    S.tide = 4; S.cleared = 4; S.phase = 'BREAK'; S.phaseTicks = 30;   // the tide-jump recipe
+    RESORT.givePearls(10);
+    const buy = RESORT.buySpell('lifesteal');
+    let guard = 0;
+    while (S.phase !== 'TIDE' && guard++ < 100) RESORT.runTicks(1);
+    RESORT.runTicks(2);
+    S.hero.regen = 0; S.hero.hp = 300;         // a still pool: only lifesteal moves it
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps[S.creeps.length - 1];
+    c.x = S.hero.x; c.z = S.hero.z - 6; c.px = c.x; c.pz = c.z;
+    let launched = false, hpAtLaunch = -1, hpAtConnect = -1, connected = false;
+    guard = 0;
+    while (!connected && guard++ < 80) {
+      RESORT.runTicks(1);
+      const live = S.projs.some(p => p.kind === 'basic');
+      if (live && !launched) { launched = true; hpAtLaunch = S.hero.hp; }
+      if (launched && !live) { connected = true; hpAtConnect = S.hero.hp; }
+    }
+    return { ok: buy.ok, launched, connected, hpAtLaunch, hpAtConnect, ls: S.hero.lifesteal };
+  })()`);
+  ok(steal.ok && steal.launched && steal.connected,
+    'the lifesteal lab ran (tier-2 aura bought at tide 5, missile flew)', `ls=${steal.ls}%`);
+  ok(steal.hpAtLaunch === 300 && steal.hpAtConnect > 303,
+    'lifesteal pays ON CONNECT, not at launch', `launch=${steal.hpAtLaunch} connect=${Math.round(steal.hpAtConnect * 10) / 10}`);
+
+  // event riders: hit kinds, the stun duration, the frost slow flag
+  const riders = await evalJs(`(()=>{
+    RESORT.setSeed('ws1-riders');
+    RESORT.pickBody('wrestler');
+    RESORT.givePearls(10);
+    RESORT.buySpell('frostsnap');
+    RESORT.skipTide();
+    RESORT.runTicks(2);
+    const S = RESORT.state;
+    RESORT.spawn(2, 'crab');
+    for (const c of S.creeps) {
+      c.x = S.hero.x + 0.5; c.z = S.hero.z - 2; c.px = c.x; c.pz = c.z;
+      c.hp = c.maxHp = 99999;
+    }
+    S.events.length = 0;
+    RESORT.runTicks(14);
+    const slot = ['Q', 'W', 'E'].find(k => S.slots[k] === 'frostsnap');
+    RESORT.cast(slot, S.creeps[0].x, S.creeps[0].z);
+    RESORT.runTicks(2);
+    const meleeKind = S.events.some(e => e.type === 'hit' && e.kind === 'melee');
+    const spellKind = S.events.some(e => e.type === 'hit' && e.kind === 'spell');
+    const frostSlow = S.events.some(e => e.type === 'aoe_hit' && e.slow === true);
+    S.tideMod = 'bash';                        // force the bash roll on every crab hit
+    let stunEv = null, g2 = 0;
+    while (!stunEv && g2++ < 900) {
+      if (g2 % 100 === 0) S.hero.hp = S.hero.maxHp;
+      RESORT.runTicks(1);
+      stunEv = S.events.find(e => e.type === 'stun');
+    }
+    return { meleeKind, spellKind, frostSlow, stunSec: stunEv && stunEv.sec };
+  })()`);
+  ok(riders.meleeKind && riders.spellKind && riders.frostSlow,
+    "hit events carry their kind; FROST SNAP's aoe_hit carries slow:true", JSON.stringify({ m: riders.meleeKind, s: riders.spellKind, f: riders.frostSlow }));
+  ok(riders.stunSec === 0.8, 'the stun event carries its duration', `sec=${riders.stunSec}`);
+
+  // determinism with missiles in the air: same seed, same run, projs included
+  const wsDetScript = `(()=>{
+    RESORT.setSeed('ws1-det');
+    RESORT.pickBody('magician');
+    RESORT.buySpell('fireball');
+    RESORT.skipTide();
+    RESORT.runTicks(260);
+    RESORT.cast('Q', 0, -8);
+    RESORT.runTicks(340);
+    return RESORT.snapshot();
+  })()`;
+  const wd1 = await evalJs(wsDetScript);
+  const wd2 = await evalJs(wsDetScript);
+  ok(JSON.stringify(wd1) === JSON.stringify(wd2) && wd1.kills > 0,
+    'the magician missile timeline reproduces byte-for-byte', `kills=${wd1.kills} draws=${wd1.draws}`);
+
+  // the combat audio kit is wired — and headless NEVER creates a context
+  const audioKit = await evalJs(`({
+    hasCombat: typeof RESORT.audio.combat === 'function',
+    unlocked: RESORT.audio.unlocked,
+    fired: Object.keys(RESORT.fx.combatAudioFired).length })`);
+  ok(audioKit.hasCombat && audioKit.unlocked === false,
+    'the combat kit exists and the headless context was never created', JSON.stringify(audioKit));
+  ok(audioKit.fired >= 2, 'combat cues fired through the event wiring (counted before the unlock gate)', `${audioKit.fired} cue kinds`);
+
   // --- 9. LIVE FRAME + SCREENSHOT ---------------------------------------
   console.log('\nRENDER');
   await evalJs('RESORT.i18nAudit(true)');

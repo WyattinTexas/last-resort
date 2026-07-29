@@ -19,7 +19,7 @@ import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSl
 import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, mmss } from './ghost.js';
 import { AUDIO } from './audio.js';
 
-export const VERSION = '0.4.1';
+export const VERSION = '0.5.0';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;
@@ -44,6 +44,7 @@ const HUD = {
   title: el('title'), titlePlay: el('title-play'), titleDaily: el('title-daily'),
   titleFoot: el('title-foot'),
   slots: { Q: el('slot-q'), W: el('slot-w'), E: el('slot-e'), R: el('slot-r') },
+  bar: el('bar'),
   btnSheet: el('btn-sheet'), btnMute: el('btn-mute'), btnMuteIco: el('btn-mute-ico'),
 };
 
@@ -82,6 +83,9 @@ let acc = 0;
 let lastMs = 0;
 let tSec = 0;
 let framesDrawn = 0;
+let hitstopUntil = 0;      // wall-ms deadline: the consumed clock is frozen under it
+let lastStopAt = -1e9;     // wall-ms of the last stop (250ms floor between stops)
+let prevAtkCd = 0;         // for the whoosh windup prediction
 const floats = [];
 let annUntil = 0;
 const warns = [];     // telegraphed circles: {x,z,r,ttl,total,color} (WORLD coords)
@@ -184,8 +188,14 @@ function resize() {
 // ---------------------------------------------------------------------------
 function frame(nowMs) {
   requestAnimationFrame(frame);
-  const dtMs = Math.min(250, nowMs - lastMs);
+  const rawMs = Math.min(250, nowMs - lastMs);
   lastMs = nowMs;
+  // WS1 HITSTOP: a timescale on the CONSUMED time. The sim never reads a
+  // clock, so freezing consumption is deterministically legal — the same
+  // ticks simply happen a beat later. Everything downstream (acc, tSec, the
+  // dt handed to draw and the overlay) rides the scaled delta; tools drive
+  // runTicks directly and never feel it.
+  const dtMs = nowMs < hitstopUntil ? 0 : rawMs;
   const dt = dtMs / 1000;
   tSec += dt;
 
@@ -195,6 +205,19 @@ function frame(nowMs) {
     while (acc >= TICK_MS && spent < MAX_CATCHUP) { sim.tick(); acc -= TICK_MS; spent++; }
     if (acc > TICK_MS * MAX_CATCHUP) acc = 0;   // the tab was asleep; drop the debt, don't fast-forward
   }
+
+  // WS1 whoosh: the windup speaks just before a swing lands (render-side
+  // prediction off the cooldown — a whiffed prediction is a quiet breath of
+  // air, harmless, and the sim is never consulted twice)
+  const hcd = sim.S.hero.atkCd;
+  if (!sim.S.hero.dead && sim.S.phase === PHASE.TIDE && hcd <= 4 && prevAtkCd > 4) {
+    const wt = nearestCreepToHero();
+    if (wt) {
+      const rr = sim.S.hero.range + wt.radius + 0.25;
+      if ((wt.x - sim.S.hero.x) ** 2 + (wt.z - sim.S.hero.z) ** 2 <= rr * rr) AUDIO.combat('whoosh');
+    }
+  }
+  prevAtkCd = hcd;
 
   const mka = scene.marketAnchor;
   ZOFF.x = sim.S.zone === ZONE.MARKET ? mka.x : 0;
@@ -214,12 +237,27 @@ function frame(nowMs) {
   framesDrawn++;
 }
 
+// WS1: selective macro-stop (Direction A). Only the BIG beats freeze the
+// world — crit connects, a boss slam landing on you, big kills, kill bursts.
+// Normal swings get NO clock effect: squash + spark + sound carry them, so a
+// 40-creep scrum stays readable and the stops land like punctuation. Floor
+// 250ms between stops; never while paused, on the title, or outside a tide.
+function hitstop(ms) {
+  if (paused || sim.S.phase !== PHASE.TIDE || HUD.title.classList.contains('show')) return;
+  const now = performance.now();
+  if (now - lastStopAt < 250) return;
+  lastStopAt = now;
+  hitstopUntil = now + ms;
+}
+
 // ---------------------------------------------------------------------------
 // EVENTS — the sim's one-way channel to the presentation layer.
 // ---------------------------------------------------------------------------
 function consumeEvents() {
   const S = sim.S;
   const evs = sim.drainEvents();
+  // WS1: hitstop reads the whole batch (a nova wipe is ONE beat, not thirty)
+  let batchKills = 0, batchBigKill = false, batchCrit = false, batchSlamHit = false;
   // A drained batch can straddle a port (kills -> clear -> port in one tick):
   // walk a running zone so every event's fx lands in the frame it happened in.
   let runZone = S.zone;
@@ -250,16 +288,38 @@ function consumeEvents() {
       case 'spawn':
         scene.popFoamRing(e.x, e.z);
         break;
-      case 'hit':
+      case 'hit': {
         if (e.crit) pushFloat(e.x + oX, e.z + oZ, '-' + e.amount + '!', '#FFB347', 23);
         else pushFloat(e.x + oX, e.z + oZ, '-' + e.amount, e.fatal ? '#FFF2C4' : '#FFFFFF', e.fatal ? 20 : 15);
+        // WS1 impact frames: spark + per-hit sound, coloured by kind. Crits
+        // go gold and bigger; missile connects burst warm; spells stay quiet
+        // (a nova on thirty creeps must not be thirty sounds).
+        // warm white-gold, not pure white: measured on the postcard, white
+        // shards vanish into the sand and the float text (plan said white;
+        // the sand won the argument — logged deviation)
+        if (e.crit) { scene.popSparks(e.x + oX, 1.1, e.z + oZ, 0xFFD24A, 6, 1.6); batchCrit = true; }
+        else if (e.kind === 'shot') scene.popSparks(e.x + oX, 1.1, e.z + oZ, 0xFFC98A, 5, 1.15);
+        else scene.popSparks(e.x + oX, 1.1, e.z + oZ, 0xFFE9B0, e.kind === 'spell' ? 3 : 5, e.kind === 'spell' ? 0.8 : 1.15);
+        if (e.kind === 'melee') AUDIO.combat(e.crit ? 'melee_crit' : 'melee_hit');
+        else if (e.kind === 'shot') AUDIO.combat(e.crit ? 'melee_crit' : 'shot_hit');
         break;
+      }
       case 'kill':
         pushFloat(e.x + oX, e.z + oZ, '+' + e.gold, '#F5C542', e.big ? 24 : 17);
+        // WS1 kill confirm: the corpse beat (tips toward whoever felled it)
+        // and the bounty pop with its coin a beat later
+        scene.pushCorpse({ skin: e.skin, x: e.x + oX, z: e.z + oZ, big: e.big, mini: e.mini,
+          face: Math.atan2(S.hero.x - e.x, S.hero.z - e.z) });
+        if (e.big) scene.popSparks(e.x + oX, 1.4, e.z + oZ, 0xF5C542, 6, 2.2);
+        AUDIO.combat('kill_pop', { big: e.big });
+        AUDIO.combat('coin', { delay: 0.08 });
+        batchKills++;
+        if (e.big) batchBigKill = true;
         break;
       case 'hero_hit':
         scene.kick(0.06);
         pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, '-' + e.amount, '#FF6B6B', 17);
+        AUDIO.combat('hit_taken');
         break;
       case 'tide_start': {
         const milestone = e.tide % TUNE.milestoneEvery === 0;
@@ -315,11 +375,23 @@ function consumeEvents() {
         break;
       }
       case 'proj_hit':
-        scene.popRing(e.x + oX, e.z + oZ, catHex(e.cat), Math.max(0.4, (e.r || 0.6) / 2.4));
+        scene.popRing(e.x + oX, e.z + oZ, e.basic ? 0xFFD8A0 : catHex(e.cat), Math.max(0.4, (e.r || 0.6) / 2.4));
+        // WS1: a slow APPLIED has a birth — the ice-blue crackle at the blast
+        if (e.slow) { scene.popRing(e.x + oX, e.z + oZ, 0x9FD8FF, Math.max(0.5, (e.r || 1) / 1.8)); AUDIO.combat('slow_crackle'); }
         break;
       case 'aoe_hit':
-        if (e.hostile) { scene.popRing(e.x + oX, e.z + oZ, 0xFF5B5B, e.r / 2.2); scene.kick(0.1); }
-        else scene.popRing(e.x + oX, e.z + oZ, catHex(e.cat), e.r / 2.4);
+        if (e.hostile) {
+          scene.popRing(e.x + oX, e.z + oZ, 0xFF5B5B, e.r / 2.2);
+          scene.kick(0.1);
+          AUDIO.combat('slam');
+          // the slam actually catching you is one of the big beats
+          const sdx = S.hero.x - e.x, sdz = S.hero.z - e.z;
+          if (!S.hero.dead && sdx * sdx + sdz * sdz <= (e.r + 0.7) * (e.r + 0.7)) batchSlamHit = true;
+        } else {
+          scene.popRing(e.x + oX, e.z + oZ, catHex(e.cat), e.r / 2.4);
+          if (e.slow) { scene.popRing(e.x + oX, e.z + oZ, 0x9FD8FF, e.r / 1.8); AUDIO.combat('slow_crackle'); }
+          if (e.root) { scene.popRing(e.x + oX, e.z + oZ, 0xB6FF9A, e.r / 1.8); AUDIO.combat('root_snare'); }
+        }
         break;
       case 'aoe_warn':
         warns.push({ x: e.x + oX, z: e.z + oZ, r: e.r, ttl: e.ticks / SIM_HZ, total: e.ticks / SIM_HZ, color: e.hostile ? '#FF5B5B' : '#F5C542' });
@@ -331,8 +403,10 @@ function consumeEvents() {
       case 'chain':
         beams.push({ pts: e.pts.map(p => ({ x: p.x + oX, z: p.z + oZ })), ttl: 0.28, total: 0.28, jag: true, color: '#9FE7FF' });
         break;
-      case 'zap':
-        beams.push({ pts: [{ x: e.x0 + oX, z: e.z0 + oZ }, { x: e.x1 + oX, z: e.z1 + oZ }], ttl: 0.13, total: 0.13, jag: false, color: '#FFF6D2' });
+      case 'shot':
+        // WS1: the wand basic is a real missile now — flash the tip on launch
+        scene.wandFlash();
+        AUDIO.combat('shot');
         break;
       case 'dash':
         scene.popRing(e.x0 + oX, e.z0 + oZ, 0x7FE7D8, 0.6);
@@ -349,10 +423,12 @@ function consumeEvents() {
         announce(TXT('THE REEF ANSWERS'), '#E7C25C', 2);
         break;
       case 'stun':
-        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, TXT('STUNNED!'), '#FF6B6B', 16);
+        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, tf(TXT('STUNNED — %1s'), e.sec || 0.8), '#FF6B6B', 16);
+        AUDIO.combat('stun_ring', { sec: e.sec });
         break;
       case 'dodge':
         pushFloat(e.x + oX, e.z + oZ, TXT('MISS'), '#C8D8E0', 13);
+        AUDIO.combat('whiff');
         break;
       case 'mod_tide': {
         const m = MOD[e.mod];
@@ -378,6 +454,10 @@ function consumeEvents() {
         AUDIO.moment('victory');
         break;
     }
+  }
+  // WS1: the batch's one hitstop verdict — big beats freeze the world ~0.1s
+  if (batchCrit || batchBigKill || batchSlamHit || batchKills >= 3) {
+    hitstop(batchBigKill || batchSlamHit ? 110 : batchKills >= 3 ? 90 : 100);
   }
 }
 
@@ -587,6 +667,10 @@ function drawHud() {
     }
     HUD.barnote.style.display = Object.values(S.slots).some(v => v) ? 'none' : 'block';
   }
+
+  // WS1: a stunned hero's whole cast bar grays and shakes (cast already
+  // refuses with why:'stun'; now the refusal is visible before you try)
+  HUD.bar.classList.toggle('stunned', S.hero.stun > 0 && !S.hero.dead);
 
   // cooldown slots run every frame — they are the game's wristwatch
   for (const k of ['Q', 'W', 'E', 'R']) {
@@ -831,11 +915,23 @@ function installDebugApi() {
     // presentation debug surfaces the battery leans on
     ghost: ghostDebug,
     audio: AUDIO,
+    // WS1 combat-feel probes: the battery POLLS these, never sleep-asserts
+    fx: {
+      get hitstopActive() { return performance.now() < hitstopUntil; },
+      get corpses() { return scene.fxCorpses; },
+      get sparks() { return scene.fxSparks; },
+      get sparksDrawn() { return scene.fxSparksDrawn; },
+      get combatAudioFired() { return AUDIO.combatFired; },
+      // hold the presentation clock (the hitstop mechanism, gate-free) so a
+      // screenshot can catch sparks/corpses mid-air — uishots uses this
+      freeze(ms) { hitstopUntil = performance.now() + (ms | 0); return true; },
+    },
     get titleUp() { return HUD.title.classList.contains('show'); },
     showTitle,
     get vistaK() { return scene.vistaK; },
     get goldK() { return scene.goldK; },
     get renderInfo() { return scene.renderer.info.render; },
+    get sceneApi() { return scene; },   // the live scene handle (FX debugging)
 
     snapshot() { return sim.snapshot(); },
     // Re-resolve every static string through TXT(). A language switch will

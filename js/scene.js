@@ -913,6 +913,8 @@ export function createScene(canvas, COVE, MARKET) {
     hero.remove(heroBody);
     heroBody = buildHeroBody(bodyId);
     hero.add(heroBody);
+    curBodyId = bodyId;
+    heroBody.rotation.y = 0;   // the swing twist writes this every frame
   }
 
   // --- BOSSES: the creep protos scaled up and crowned. One per skin, hidden
@@ -1013,6 +1015,123 @@ export function createScene(canvas, COVE, MARKET) {
     return ray.ray.intersectPlane(groundPlane, hitPt) ? { x: hitPt.x, z: hitPt.z } : null;
   }
 
+  // -------------------------------------------------------------------------
+  // WS1 COMBAT FEEL POOLS — impact sparks, the corpse beat, stun stars, the
+  // wand-tip flash. All render-side: the sim never knows a hit sparked.
+  // -------------------------------------------------------------------------
+
+  // IMPACT SPARKS: one additive instanced pool for every landed hit (+1 draw
+  // call). Shards fly on render-side randomness — legal, the sim never sees
+  // them. popSparks DROPS on a full pool rather than queueing: at 40 creeps
+  // the cap is the strobe limiter.
+  const SPARK_CAP = 96;
+  // a drawn streak, NORMAL blending: additive white washes out over sunlit
+  // sand (it only pops on dark backgrounds, and this island has none)
+  function makeSparkTexture() {
+    const cv = document.createElement('canvas');
+    cv.width = 64; cv.height = 20;
+    const g = cv.getContext('2d');
+    const lg = g.createLinearGradient(0, 0, 64, 0);
+    lg.addColorStop(0, 'rgba(255,255,255,0)');
+    lg.addColorStop(0.5, 'rgba(255,255,255,1)');
+    lg.addColorStop(1, 'rgba(255,255,255,0)');
+    g.strokeStyle = 'rgba(30,22,10,0.55)';
+    g.lineWidth = 3;
+    g.strokeRect(6, 5, 52, 10);
+    g.fillStyle = lg;
+    g.fillRect(2, 3, 60, 14);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+  const sparkMesh = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(0.46, 0.14),
+    new THREE.MeshBasicMaterial({ map: makeSparkTexture(), color: 0xFFFFFF, transparent: true,
+      depthWrite: false, side: THREE.DoubleSide, fog: false }),
+    SPARK_CAP);
+  sparkMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  sparkMesh.count = 0;
+  sparkMesh.frustumCulled = false;
+  sparkMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(SPARK_CAP * 3), 3);
+  scene.add(sparkMesh);
+  const sparks = [];
+  // sizes are tuned for THIS camera: at pitch 49 / dist 56 a metre is ~24px,
+  // so a readable shard needs to be over half a metre long. Small was honest;
+  // invisible was useless (measured on the postcard rig, not guessed).
+  function popSparks(x, y, z, color, n, power) {
+    const pw = power || 1;
+    // the 2-frame star flash at impact height, then the shards
+    if (sparks.length < SPARK_CAP) {
+      sparks.push({ x, y, z, vx: 0, vy: 0, vz: 0, t: 0, ttl: 0.07, size: 2.0 * pw, color, star: true });
+    }
+    for (let i = 0; i < (n || 5) && sparks.length < SPARK_CAP; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = (1.8 + Math.random() * 2.6) * pw;
+      // born already spread along their flight line: the first frame reads as
+      // a burst, not a dot buried inside the victim's body
+      sparks.push({
+        x: x + Math.sin(a) * (0.18 + Math.random() * 0.2) * pw,
+        y: y + 0.05 + Math.random() * 0.3,
+        z: z + Math.cos(a) * (0.18 + Math.random() * 0.2) * pw,
+        vx: Math.sin(a) * sp, vy: 1.6 + Math.random() * 2.8 * pw, vz: Math.cos(a) * sp,
+        t: 0, ttl: 0.3 + Math.random() * 0.22, size: (1.3 + Math.random() * 0.9) * pw,
+        color, star: false,
+      });
+    }
+  }
+
+  // THE CORPSE BEAT: dead creeps ride the SAME per-skin instanced batches in
+  // the free slots above the live count — zero extra draw calls (live ≤40 +
+  // corpses ≤16 < CREEP_CAP 64). Live creeps always win the slots; the list
+  // drops oldest-first under debug-spawn pressure. Bosses latch their own
+  // dedicated mesh for a longer keel instead.
+  const CORPSE_CAP = 16;
+  const CORPSE_SEC = 0.7;
+  const corpses = [];               // { skin, x, z, face, mini, t0 } — WORLD coords
+  let bossCorpse = null;            // { skin, t0 } — the mesh keeps its last live pose
+  function pushCorpse(o) {
+    if (o.big) { bossCorpse = { skin: o.skin, t0: null }; return; }
+    if (!creepMeshes[o.skin]) return;
+    if (corpses.length >= CORPSE_CAP) corpses.shift();
+    corpses.push({ skin: o.skin, x: o.x, z: o.z, face: o.face || 0, mini: !!o.mini, t0: null });
+  }
+
+  // STUN STARS: the cartoon read over a stunned hero's head (+1 draw call).
+  // A drawn star sprite with a dark rim — a bare gold quad vanishes into the
+  // sand at the gameplay camera distance.
+  function makeStarTexture() {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 64;
+    const g = cv.getContext('2d');
+    g.translate(32, 32);
+    g.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 ? 11 : 26;
+      const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+      i ? g.lineTo(Math.cos(a) * r, Math.sin(a) * r) : g.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    g.closePath();
+    g.fillStyle = '#FFD84A';
+    g.strokeStyle = 'rgba(16,24,40,0.9)';
+    g.lineWidth = 5;
+    g.stroke(); g.fill();
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+  const stunStars = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(0.62, 0.62),
+    new THREE.MeshBasicMaterial({ map: makeStarTexture(), transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide }),
+    3);
+  stunStars.count = 3;
+  stunStars.frustumCulled = false;
+  stunStars.visible = false;
+  scene.add(stunStars);
+
+  // the wand-tip flash, timed to the missile launch (game.js calls this on 'shot')
+  let wandFlashT = 99;
+  function wandFlash() { wandFlashT = 0; }
+
   const projV = new THREE.Vector3();
   function worldToScreen(x, y, z, w, h) {
     projV.set(x, y, z).project(camera);
@@ -1044,6 +1163,35 @@ export function createScene(canvas, COVE, MARKET) {
   const avatarCol = C(0xFF6A3C);   // the volcano, worn
   const BLOB_CAP = CREEP_CAP + 8;
   let camShake = 0;
+  const qPitch = new THREE.Quaternion();
+  const X_AXIS = new THREE.Vector3(1, 0, 0);
+  const Z_AXIS = new THREE.Vector3(0, 0, 1);
+  const corpseCol = C(0xCFC3A6);   // corpses fade toward the sand that takes them
+  const basicGlow = C(0xFFE9A8);   // the wand missile's warm tracer
+  const sparkCol = new THREE.Color();
+  let curBodyId = null;
+
+  // --- WS1 THE SWING CYCLE — windup / strike / backswing, driven entirely off
+  // sim state the renderer already sees. windK rises off the attack COOLDOWN
+  // (the sim deals damage exactly when cd hits 0 in reach, so anticipation is
+  // free and always lands on the impact tick); the STRIKE snaps through on the
+  // atkAnim window with ~12% overshoot; the settle eases back to idle. One
+  // scalar comes out: P = -1 full windup → +1.12 overshoot → 0 settled.
+  const easeOut3 = k => 1 - Math.pow(1 - k, 3);
+  const SNAP_AT = 0.22, OVERSHOOT = 1.12;
+  function strikeCurve(u) {
+    if (u < SNAP_AT) return -1 + (1 + OVERSHOOT) * easeOut3(u / SNAP_AT);
+    return OVERSHOOT * (1 - easeOut3((u - SNAP_AT) / (1 - SNAP_AT)));
+  }
+  function poseOf(anim, span, windK, alpha) {
+    if (anim > 0) {
+      const u = 1 - Math.min(1, Math.max(0, (anim - alpha) / span));
+      // the next windup blends in as the settle completes (fast attackers
+      // re-cock before the follow-through fully lands)
+      return strikeCurve(u) - windK * u;
+    }
+    return -windK;
+  }
 
   // --- zones (rev 1): the camera and every sim-frame entity ride an offset.
   // SQUARE is the identity frame; MARKET translates to the plaza at MK. The
@@ -1138,10 +1286,45 @@ export function createScene(canvas, COVE, MARKET) {
       const bobA = moving ? 0.1 : 0.035;
       hero.position.set(hx, Math.abs(Math.sin(tSec * (moving ? 9 : 2.2))) * bobA, hz);
       hero.rotation.y = h.facing;
-      const swing = h.atkAnim > 0 ? (h.atkAnim / 5) : 0;
+      // WS1 swing cycle: the windup needs a target in reach (a hero does not
+      // stand cocked in an empty market); reach matches the sim's own test.
+      let heroReach = false;
+      for (const c of S.creeps) {
+        if (c.dead || c.receding) continue;
+        const rdx = c.x - h.x, rdz = c.z - h.z;
+        const rr = h.range + c.radius + 0.25;
+        if (rdx * rdx + rdz * rdz <= rr * rr) { heroReach = true; break; }
+      }
+      const hWind = heroReach && h.atkCd <= 4 ? 1 - h.atkCd / 4 : 0;
+      const P = poseOf(h.atkAnim, 4, hWind, alpha);
+      const wind = Math.max(0, -P), snap = Math.max(0, P);
       const ud = heroBody.userData;
-      if (ud.club) ud.club.rotation.x = -1.5 * swing;
-      if (ud.armL) ud.armL.rotation.x = -1.1 * swing;
+      if (curBodyId === 'diver') {
+        // the spear is a straight-line jab: pull back, thrust through
+        if (ud.club) {
+          const bp = ud.club.userData.basePos || (ud.club.userData.basePos = ud.club.position.clone());
+          ud.club.position.z = bp.z - wind * 0.30 + snap * 0.85;
+          ud.club.rotation.x = wind * 0.35 - snap * 0.30;
+        }
+        if (ud.armL) ud.armL.rotation.x = wind * 0.5 - snap * 0.9;
+        heroBody.rotation.y = P * -0.10;
+      } else if (curBodyId === 'magician') {
+        // the wand is a flick; the launch flash rides wandFlashT below
+        if (ud.club) ud.club.rotation.x = wind * 0.55 - snap * 0.75;
+        if (ud.armL) ud.armL.rotation.x = wind * 0.4 - snap * 0.8;
+        heroBody.rotation.y = P * -0.08;
+      } else {
+        // the wrestler's club takes the big arc, body twisting into it
+        if (ud.club) ud.club.rotation.x = wind * 1.25 - snap * 0.9;
+        if (ud.armL) ud.armL.rotation.x = wind * 0.7 - snap * 1.05;
+        heroBody.rotation.y = P * -0.24;
+      }
+      // wand-tip flash on missile launch (scaled back down over ~180ms)
+      wandFlashT += dt;
+      if (curBodyId === 'magician' && ud.club && ud.club.children[0]) {
+        const fk = Math.max(0, 1 - wandFlashT / 0.18);
+        ud.club.children[0].scale.setScalar(1 + fk * 2.4);
+      }
       // AVATAR OF THE VOLCANO wears the hero like a costume
       const avatar = h.buffs && h.buffs.some(b => b.id === 'avatar');
       hero.scale.setScalar(avatar ? 1.24 : 1);
@@ -1155,10 +1338,23 @@ export function createScene(canvas, COVE, MARKET) {
       const pulse = 1 + Math.sin(tSec * 3) * 0.04;
       heroRing.scale.set(pulse, pulse, pulse);
       if (h.stun > 0) {
-        // stunned: little stars would be work; a hard yellow ring is honest
+        // stunned reads three ways at once (WS1): the hard yellow ring, the
+        // orbiting stars overhead, and the grayed QWER bar (game.js side)
         heroRing.material.color.set(0xF5C542);
       }
-    }
+      stunStars.visible = h.stun > 0;
+      if (stunStars.visible) {
+        for (let i = 0; i < 3; i++) {
+          const a = tSec * 4.4 + i * (Math.PI * 2 / 3);
+          q.copy(camera.quaternion).multiply(qPitch.setFromAxisAngle(Z_AXIS, Math.PI / 4 + tSec * 2 + i));
+          m4.compose(
+            vPos.set(hx + Math.sin(a) * 0.62, 2.66 + Math.sin(tSec * 6 + i * 2) * 0.07, hz + Math.cos(a) * 0.62),
+            q, vScl.set(1, 1, 1));
+          stunStars.setMatrixAt(i, m4);
+        }
+        stunStars.instanceMatrix.needsUpdate = true;
+      }
+    } else stunStars.visible = false;
 
     // --- click marker ---
     clickT += dt;
@@ -1177,7 +1373,30 @@ export function createScene(canvas, COVE, MARKET) {
     for (const c of S.creeps) {
       const cx = lerp(c.px, c.x), cz = lerp(c.pz, c.z);
       const face = Math.atan2(h.x - cx, h.z - cz);
-      const lunge = c.atkAnim > 0 ? 0.25 : 0;
+
+      // WS1 swing cycle for the attackers: windup rises off the cooldown when
+      // a defender is in reach; a creep sitting at atkCd 0 mid-charge HOLDS the
+      // cocked pose — claws up is the correct, menacing read. Snap on atkAnim.
+      let inReach = false;
+      if (!h.dead && !c.receding) {
+        const rdx = h.x - c.x, rdz = h.z - c.z;
+        const rr = c.range + h.radius + 0.25;
+        inReach = rdx * rdx + rdz * rdz <= rr * rr;
+      }
+      if (!inReach && !c.receding) {
+        for (const al of S.allies) {
+          if (al.dead) continue;
+          const rdx = al.x - c.x, rdz = al.z - c.z;
+          const rr = c.range + al.radius + 0.25;
+          if (rdx * rdx + rdz * rdz <= rr * rr) { inReach = true; break; }
+        }
+      }
+      const windSpan = c.big ? 8 : 5;    // bosses cock a readable haymaker
+      const windK = c.receding ? 0
+        : (c.atkCd === 0 ? 1 : (inReach && c.atkCd <= windSpan ? 1 - c.atkCd / windSpan : 0));
+      const P = poseOf(c.atkAnim, 5, windK, alpha);
+      const wind = Math.max(0, -P), snap = Math.max(0, P);
+      const punch = Math.max(0, (c.hitFlash - alpha) / 3);   // victim squash on the hit
 
       if (c.big) {
         const bm = bossMeshes[c.skin];
@@ -1186,8 +1405,12 @@ export function createScene(canvas, COVE, MARKET) {
           const stomp = Math.abs(Math.sin(tSec * 3.2)) * 0.1;
           bm.position.set(cx, stomp, cz);
           bm.rotation.y = face;
-          const bs = (c.scale || 2.6) * (1 + lunge * 0.35);
-          bm.scale.set(bs, (c.scale || 2.6) * (1 - lunge * 0.15), bs);
+          bm.rotation.x = -0.10 * wind + 0.15 * snap;
+          bm.rotation.z = 0;
+          const s0 = c.scale || 2.6;
+          const bs = s0 * (1 + snap * 0.40 - wind * 0.05) * (1 + punch * 0.07);
+          const by = s0 * (1 - snap * 0.18 + wind * 0.14) * (1 - punch * 0.07);
+          bm.scale.set(bs, by, bs);
           const bb = bm.userData.body;
           const base = bb.userData.baseCol || (bb.userData.baseCol = bb.material.color.clone());
           bb.material.color.copy(c.hitFlash > 0 ? flash : base);
@@ -1208,9 +1431,28 @@ export function createScene(canvas, COVE, MARKET) {
         ? 0.22 + Math.sin(tSec * 3.1 + c.bob) * 0.16
         : Math.abs(Math.sin(tSec * 6 + c.bob)) * 0.12;
       const base = c.mini ? 0.62 : 1;
+      // per-skin swing personality: crab claw-snap, jelly rears up, monkey
+      // lunges off a crouch — then the victim punch squashes whatever it is
+      let sx = 1, sy = 1, sz = 1, pitch = 0;
+      if (c.skin === 'jelly') {
+        sy = 1 + 0.38 * wind - 0.26 * snap;
+        sx = sz = 1 - 0.10 * wind + 0.22 * snap;
+        pitch = 0.10 * snap;
+      } else if (c.skin === 'monkey') {
+        sx = sz = 1 + 0.24 * snap;
+        sy = 1 - 0.08 * wind - 0.10 * snap;
+        pitch = -0.20 * wind + 0.26 * snap;
+      } else {
+        sx = 1 - 0.08 * wind + 0.30 * snap;
+        sy = 1 + 0.06 * wind - 0.16 * snap;
+        sz = 1 + 0.10 * snap;
+        pitch = -0.13 * wind + 0.17 * snap;
+      }
+      sx *= 1 + 0.14 * punch; sz *= 1 + 0.14 * punch; sy *= 1 - 0.12 * punch;
       q.setFromAxisAngle(UP, face);
+      if (pitch) q.multiply(qPitch.setFromAxisAngle(X_AXIS, pitch));
       m4.compose(vPos.set(cx, hop * base, cz), q,
-        vScl.set(base * (1 + lunge), base * (1 - lunge * 0.4), base * (1 + lunge)));
+        vScl.set(base * sx, base * sy, base * sz));
       im.setMatrixAt(i, m4);
       // status tints: hit flash beats ice beats roots beats plain white
       im.setColorAt(i, c.hitFlash > 0 ? flash
@@ -1224,11 +1466,49 @@ export function createScene(canvas, COVE, MARKET) {
         blobs.setMatrixAt(blobN++, m4);
       }
     }
+    // --- the corpse beat (WS1): squash flat, tip along facing, sink into the
+    // sand over 0.7s — in the instance slots the live creeps left free.
+    for (let ci = corpses.length - 1; ci >= 0; ci--) {
+      const co = corpses[ci];
+      if (co.t0 === null) co.t0 = tSec;
+      const k = (tSec - co.t0) / CORPSE_SEC;
+      if (k >= 1) { corpses.splice(ci, 1); continue; }
+      const im = creepMeshes[co.skin];
+      const i = counts[co.skin];
+      if (i >= CREEP_CAP) continue;             // a full square keeps its live slots
+      const base = co.mini ? 0.62 : 1;
+      const squash = Math.min(1, k * 1.8);
+      q.setFromAxisAngle(UP, co.face);
+      q.multiply(qPitch.setFromAxisAngle(X_AXIS, 0.35 * squash));
+      m4.compose(
+        vPos.set(co.x + Math.sin(co.face) * 0.3 * k, -0.62 * k * k, co.z + Math.cos(co.face) * 0.3 * k),
+        q,
+        vScl.set(base * (1 + 0.2 * squash), base * (1 - 0.75 * squash), base * (1 + 0.2 * squash)));
+      im.setMatrixAt(i, m4);
+      im.setColorAt(i, corpseCol);
+      counts[co.skin] = i + 1;
+    }
     for (const k in creepMeshes) {
       const im = creepMeshes[k];
       im.count = counts[k];
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    }
+    // a downed boss holds its dedicated mesh for a 1.2s keel-and-sink before
+    // it hides; a LIVE boss of the same skin always wins the mesh back
+    if (bossCorpse) {
+      const bm = bossMeshes[bossCorpse.skin];
+      if (!bm || bm.visible) bossCorpse = null;
+      else {
+        if (bossCorpse.t0 === null) bossCorpse.t0 = tSec;
+        const k = (tSec - bossCorpse.t0) / 1.2;
+        if (k >= 1) { bm.rotation.z = 0; bossCorpse = null; }
+        else {
+          bm.visible = true;
+          bm.rotation.z = 1.15 * easeOut3(Math.min(1, k * 1.3));
+          bm.position.y = -2.3 * k * k;
+        }
+      }
     }
 
     // --- allies: the golem pool ---
@@ -1241,8 +1521,23 @@ export function createScene(canvas, COVE, MARKET) {
       const stomp = Math.abs(Math.sin(tSec * 4 + i)) * 0.08;
       g.position.set(ax, stomp, az);
       g.rotation.y = a.facing;
-      const lunge = a.atkAnim > 0 ? 0.2 : 0;
-      g.scale.set(1 + lunge, 1 - lunge * 0.2, 1 + lunge);
+      // WS1: the golem swings on the same windup/strike cycle as the hero
+      let gReach = false;
+      for (const c of S.creeps) {
+        if (c.dead || c.receding) continue;
+        const rdx = c.x - a.x, rdz = c.z - a.z;
+        const rr = a.range + c.radius + 0.25;
+        if (rdx * rdx + rdz * rdz <= rr * rr) { gReach = true; break; }
+      }
+      const gWind = gReach && a.atkCd <= 4 ? 1 - a.atkCd / 4 : 0;
+      const gP = poseOf(a.atkAnim, 5, gWind, alpha);
+      const wind = Math.max(0, -gP), snap = Math.max(0, gP);
+      const punch = Math.max(0, (a.hitFlash - alpha) / 3);
+      g.rotation.x = -0.11 * wind + 0.15 * snap;
+      g.scale.set(
+        (1 + 0.26 * snap - 0.06 * wind) * (1 + 0.10 * punch),
+        (1 - 0.16 * snap + 0.10 * wind) * (1 - 0.10 * punch),
+        (1 + 0.26 * snap - 0.06 * wind) * (1 + 0.10 * punch));
       const gb = g.userData.body;
       const base = gb.userData.baseCol || (gb.userData.baseCol = gb.material.color.clone());
       gb.material.color.copy(a.hitFlash > 0 ? flash : base);
@@ -1260,14 +1555,45 @@ export function createScene(canvas, COVE, MARKET) {
       if (p.dead || pn >= PROJ_CAP) continue;
       const px = lerp(p.px, p.x) + zoneOff.x, pz2 = lerp(p.pz, p.z) + zoneOff.z;
       const wob = 1 + Math.sin(tSec * 22 + p.id) * 0.18;
-      m4.compose(vPos.set(px, 1.15, pz2), IDENT_Q, vScl.set(wob, wob, wob));
+      // WS1: the basic missile LOBS — a render-side arc over the sim's flat
+      // line — with a warm tracer so the racks keep their spell colours
+      let py = 1.15, ps = wob;
+      if (p.kind === 'basic') {
+        const lk = Math.min(1, (p.traveled || 0) / (p.maxDist || 1));
+        py = 1.3 + Math.sin(lk * Math.PI) * 0.9;
+        ps = wob * 0.85;
+      }
+      m4.compose(vPos.set(px, py, pz2), IDENT_Q, vScl.set(ps, ps, ps));
       projMesh.setMatrixAt(pn, m4);
-      projMesh.setColorAt(pn, CAT_GLOW[p.cat] || white);
+      projMesh.setColorAt(pn, p.kind === 'basic' ? basicGlow : (CAT_GLOW[p.cat] || white));
       pn++;
     }
     projMesh.count = pn;
     projMesh.instanceMatrix.needsUpdate = true;
     if (projMesh.instanceColor) projMesh.instanceColor.needsUpdate = true;
+
+    // --- impact sparks (WS1): shards on gravity + the 2-frame star flash ---
+    let sn = 0;
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i];
+      s.t += dt;
+      if (s.t >= s.ttl) { sparks.splice(i, 1); continue; }
+      const k = s.t / s.ttl;
+      if (!s.star) {
+        s.vy -= 10.5 * dt;
+        s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+      }
+      const sc = s.star ? s.size * (1 + k * 1.6) : s.size * (1 - k * 0.8);
+      q.copy(camera.quaternion);
+      q.multiply(qPitch.setFromAxisAngle(Z_AXIS, s.star ? Math.PI / 4 : s.x * 7 + s.z * 5 + i));
+      m4.compose(vPos.set(s.x, Math.max(0.12, s.y), s.z), q, vScl.set(sc, s.star ? sc : sc * 0.5, 1));
+      sparkMesh.setMatrixAt(sn, m4);
+      sparkMesh.setColorAt(sn, sparkCol.set(s.color === undefined ? 0xFFFFFF : s.color));
+      sn++;
+    }
+    sparkMesh.count = sn;
+    sparkMesh.instanceMatrix.needsUpdate = true;
+    if (sparkMesh.instanceColor) sparkMesh.instanceColor.needsUpdate = true;
 
     // --- moods ---
     vistaK += ((vistaOn ? 1 : 0) - vistaK) * Math.min(1, dt * 1.7);
@@ -1313,9 +1639,13 @@ export function createScene(canvas, COVE, MARKET) {
     renderer, scene, camera, CAM,
     resize, draw, pickGround, worldToScreen, popFoamRing, popRing, markClick, kick,
     setHeroBody, meteorWarn, setVista, setGoldHour, setZone,
+    popSparks, pushCorpse, wandFlash,
     marketAnchor: MK,
     get vistaK() { return vistaK; },
     get goldK() { return goldK; },
+    get fxCorpses() { return corpses.length + (bossCorpse ? 1 : 0); },
+    get fxSparks() { return sparks.length; },
+    get fxSparksDrawn() { return sparkMesh.count; },
     paletteTex,
   };
 }

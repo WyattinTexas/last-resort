@@ -13,7 +13,21 @@ A zero-install browser game — one page, three.js, **no build step, no backend*
 
 ---
 
-## Status — P0 COMPLETE + REV 1 (the squares & the market)
+## Status — P0 COMPLETE + REV 1 (the squares & the market) + REV 2 WS1 (combat feel)
+
+**Rev 2 WS1 (v0.5.0)** made the fights *feel* like classic RTS hero combat:
+every attacker now runs a full **windup → strike → backswing** swing cycle
+(driven off the attack cooldown the sim already exposes — zero timing changes
+for melee), landed hits pop **sparks + a victim squash**, kills leave a
+**corpse that tips and sinks into the sand** plus a coin chime, big beats
+(crits, boss slams, kill bursts) land a **selective hitstop**, stuns read
+three ways at once (ring, orbiting stars, grayed cast bar), and a **13-cue
+WebAudio combat kit** gives every swing, hit, kill and state change a voice —
+still zero audio files. The one sim change: **the wand's ranged basic is now a
+real homing missile** (it lobs, travels, retargets if its victim dies mid-flight,
+or fizzles) — tuned so the measured full-run pace matches the old instant zap
+to +0.3s. Ghost records from v0.4.x remain honest; magician timelines shift by
+missile flight time.
 
 **Rev 1 (v0.4.0, 7/28)** restructured the map to the TFT shape on Wyatt's call:
 16 private squares (hard cap) around one central market plaza, teleport-to-shop
@@ -85,7 +99,7 @@ js/sim.js             THE SIM — pure, deterministic, testable in node
 js/scene.js           the island: squares, market, palette, zone camera, draw
 js/shop.js            the market UI: forge, racks, castaway sheet, victory
 js/game.js            fixed-step loop, input, HUD, window.RESORT
-tools/cdp_smoke.mjs   headless 90-check battery over CDP (incl. a full 10-tide run)
+tools/cdp_smoke.mjs   headless 107-check battery over CDP (incl. a full 10-tide run)
 tools/bot.mjs         the shopper bot — shared by node balance tools and the battery
 tools/shopper.mjs     balance matrix: STAND (run-1 proxy) vs KITE (run-3 proxy)
 bump.sh               stamp a new ?v= before every push
@@ -102,7 +116,7 @@ code, kept as law. Rank scaling is one rule everywhere: `value = a + b × (rank-
 python3 -m http.server 8791     # no build step; it is just files
 open http://127.0.0.1:8791/
 
-node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 90 checks + a screenshot
+node tools/cdp_smoke.mjs http://127.0.0.1:8791/      # 107 checks + a screenshot
 node tools/shopper.mjs                               # the balance matrix
 ```
 
