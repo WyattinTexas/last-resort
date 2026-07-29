@@ -130,7 +130,9 @@ export function shopFrame() {
   const key = [S.gold, S.pearls, S.skillPts, S.level, tideNow(S),
     Object.keys(S.spells).map(id => id + S.spells[id].rank).join(''),
     S.slots.Q, S.slots.W, S.slots.E, S.slots.R,
-    S.items.map(i => i.id).join(','), S.fruit.mango, S.fruit.starfruit, S.fruit.coconut].join('|');
+    // WS5: charges ride the key — a spent charge must re-render its chip
+    S.items.map(i => i.id + (i.charges != null ? ':' + i.charges : '')).join(','),
+    S.fruit.mango, S.fruit.starfruit, S.fruit.coconut].join('|');
   if (key !== lastKey) {
     lastKey = key;
     if (openStall) fillSheet(openStall, S);
@@ -172,7 +174,10 @@ function fillSheet(stallId, S) {
   } else if (st.kind === 'fruit') {
     for (const f of FRUITS) rows.appendChild(fruitRow(f, S));
   } else {
-    for (const it of ITEMS) rows.appendChild(itemRow(it, S));
+    // WS5: two item shops, one row builder — stock filters on the row's shop
+    // field (classic shack rows carry none and default to the shack).
+    const want = st.kind === 'trader' ? 'trader' : 'shack';
+    for (const it of ITEMS.filter(i => (i.shop || 'shack') === want)) rows.appendChild(itemRow(it, S));
   }
 
   const owned = Object.keys(S.spells).length;
@@ -312,8 +317,10 @@ function fruitRow(f, S) {
 }
 
 function itemRow(it, S) {
+  const unlock = it.tide || 1;
+  const locked = tideNow(S) < unlock;
   const row = document.createElement('div');
-  row.className = 'srow';
+  row.className = 'srow' + (locked ? ' locked' : '');
   row.innerHTML = '<div class="sico" data-notr>' + it.ico + '</div>' +
     '<div class="smeta"><div class="sname" data-notr></div><div class="sdesc" data-notr></div></div>';
   const nm = row.querySelector('.sname');
@@ -324,16 +331,28 @@ function itemRow(it, S) {
     pc.style.color = '#7AC8FF';
     pc.textContent = TXT('1 USE');
     nm.appendChild(pc);
+  } else if (it.kind === 'active') {
+    // WS5: actives wear their charge count where potions wear "1 USE"
+    const pc = document.createElement('span');
+    pc.className = 'tchip';
+    pc.style.color = '#E7C25C';
+    pc.textContent = it.charges === 1 ? TXT('×1 CHARGE') : tf(TXT('×%1 CHARGES'), it.charges);
+    nm.appendChild(pc);
   }
   row.querySelector('.sdesc').textContent = TXT(it.desc);
   const btn = document.createElement('button');
   btn.className = 'sbtn';
-  btn.textContent = tf(TXT('BUY · %1g'), it.price);
-  btn.disabled = S.gold < it.price || S.items.length >= RULES.itemSlots;
-  btn.addEventListener('click', () => {
-    const r = getSim().buyItem(it.id);
-    if (!r.ok) announce(why(r.why), '#FF6B6B', 2);
-  });
+  if (locked) {
+    btn.disabled = true;
+    btn.textContent = tf(TXT('TIDE %1'), unlock);
+  } else {
+    btn.textContent = tf(TXT('BUY · %1g'), it.price);
+    btn.disabled = S.gold < it.price || S.items.length >= RULES.itemSlots;
+    btn.addEventListener('click', () => {
+      const r = getSim().buyItem(it.id);
+      if (!r.ok) announce(why(r.why, r.tide || unlock), '#FF6B6B', 2);
+    });
+  }
   row.appendChild(btn);
   return row;
 }
@@ -342,7 +361,9 @@ function itemRow(it, S) {
 // item chips (bottom right): click a juice to drink it; keys 1-6 do the same
 // ---------------------------------------------------------------------------
 function fillItems(S) {
-  const ikey = S.items.map(i => i.id).join(',');
+  // WS5: the key carries charges — a spent keg re-renders its badge even
+  // though the id list is unchanged (a stale ×3 chip is a lie).
+  const ikey = S.items.map(i => i.id + (i.charges != null ? ':' + i.charges : '')).join(',');
   if (ikey === lastItemsKey) return;
   lastItemsKey = ikey;
   const box = UI.items;
@@ -350,15 +371,23 @@ function fillItems(S) {
   // WS2: occupied chips ONLY — no items, no phantom UI. S.items is dense
   // (buys push, drinks splice), so the loop index IS the honest 1-6 key.
   for (let i = 0; i < S.items.length; i++) {
-    const it = ITEM[S.items[i].id];
+    const inst = S.items[i];
+    const it = ITEM[inst.id];
     const chip = document.createElement('div');
-    chip.className = 'itemchip' + (it.kind === 'potion' ? ' potion' : ' worn');
+    chip.className = 'itemchip' + (it.kind === 'potion' ? ' potion' : it.kind === 'active' ? ' active' : ' worn');
     chip.textContent = it.ico;
     chip.title = TXT(it.name) + ' — ' + TXT(it.desc);
     const key = document.createElement('b');
     key.textContent = String(i + 1);
     chip.appendChild(key);
-    if (it.kind === 'potion') chip.addEventListener('click', () => useItemSlot(i));
+    if (inst.charges != null) {
+      const chg = document.createElement('span');
+      chg.className = 'chg';
+      chg.setAttribute('data-notr', '');
+      chg.textContent = '×' + inst.charges;
+      chip.appendChild(chg);
+    }
+    if (it.kind !== 'passive') chip.addEventListener('click', () => useItemSlot(i));
     box.appendChild(chip);
   }
 }
@@ -368,9 +397,19 @@ export function useItemSlot(i) {
   const inst = sim.S.items[i];
   if (!inst) return;
   const it = ITEM[inst.id];
-  if (it.kind !== 'potion') { announce(TXT('THAT ONE WORKS BY BEING WORN'), '#8CF0E4', 1.6); return; }
+  if (it.kind === 'passive') { announce(TXT('THAT ONE WORKS BY BEING WORN'), '#8CF0E4', 1.6); return; }
   const r = sim.useItem(i);
-  if (r.ok) announce(it.ico + ' ' + TXT(it.name), '#9CFF7A', 1.6);
+  if (!r.ok) {
+    // WS5 refusal law: the charge was kept — say why, kindly
+    if (r.why === 'target') announce(TXT('NOTHING IN REACH — SAVE THE CHARGE'), '#8CF0E4', 1.6);
+    else if (r.why === 'full') announce(TXT('ALREADY WHOLE — SAVE IT'), '#8CF0E4', 1.6);
+    return;
+  }
+  if (it.kind === 'active' && r.charges > 0) {
+    announce(it.ico + ' ' + TXT(it.name) + ' · ' + tf(TXT('%1 LEFT'), r.charges), '#9CFF7A', 1.6);
+  } else {
+    announce(it.ico + ' ' + TXT(it.name), '#9CFF7A', 1.6);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -316,6 +316,38 @@ const main = async () => {
   ok(await poll('RESORT.state.hero.hp > 200', 20), 'tapping the juice drinks it');
   ok(await poll('RESORT.ui.itemChipCount === 0', 20), 'the drunk chip leaves no husk behind');
 
+  // --- 7.5 WS5: trader actives on glass — tap to spend a charge ----------
+  // The tide poke is probe-only chrome staging (the buy gate itself is the
+  // battery's job); WS2's law stands — the chip exists because the keg does.
+  console.log('\nWS5 ACTIVES — charges live on the chips');
+  const preT = await evalJs('({t: RESORT.state.tide, c: RESORT.state.cleared})');
+  await evalJs('(RESORT.state.tide = 6, RESORT.state.cleared = 6, RESORT.giveGold(1200), 1)');
+  await evalJs('RESORT.buyItem("powderkeg")');
+  ok(await poll(`(document.querySelector('.itemchip.active .chg') || {}).textContent === '×3'`, 20),
+    'a trader active wears the gold chip with its ×3 badge');
+  await evalJs(`(()=>{
+    RESORT.spawn(1, 'crab');
+    const S = RESORT.state;
+    const c = S.creeps.find(x => !x.dead && !x.receding);
+    c.x = S.hero.x + 1; c.z = S.hero.z; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000;
+    return 1; })()`);
+  await tapEl('.itemchip.active');
+  ok(await poll(`RESORT.state.items.some(i => i.id === 'powderkeg' && i.charges === 2)`, 20),
+    'tapping the keg lights it — one charge spent in the sim');
+  ok(await poll(`(document.querySelector('.itemchip.active .chg') || {}).textContent === '×2'`, 20),
+    'the badge re-renders ×2 — the chip key carries charges');
+  await evalJs('RESORT.buyItem("flippers")');
+  await poll('RESORT.ui.itemChipCount === 2', 20);
+  const bag0 = await evalJs('RESORT.state.items.map(i => i.id).join()');
+  await tapEl('.itemchip.worn');
+  await sleep(250);
+  ok(await evalJs('RESORT.state.items.map(i => i.id).join()') === bag0
+    && await evalJs(`RESORT.state.items.find(i => i.id === 'powderkeg').charges`) === 2,
+    'a worn wearable stays info-only under the thumb — nothing spends');
+  // hand the stage back the way section 8 expects it: empty bag, home tide
+  await evalJs(`(RESORT.state.items.splice(0), RESORT.state.tide = ${preT.t}, RESORT.state.cleared = ${preT.c}, 1)`);
+  await poll('RESORT.ui.itemChipCount === 0', 20);
+
   // --- 8. THE LOADED FRAME ----------------------------------------------
   await evalJs('RESORT.buyItem("guava"); RESORT.buyItem("flippers")');
   await poll('RESORT.ui.itemChipCount === 2', 20);

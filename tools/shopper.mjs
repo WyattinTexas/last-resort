@@ -13,8 +13,9 @@
 // never touched). Targets: every archetype clears with kite play, none
 // clears STANDING, and each affords 4-6 rows by tide 10 on 15 pearls.
 
-import { createSim } from '../js/sim.js';
+import { createSim, tideNow } from '../js/sim.js';
 import { makeSeed } from '../js/rng.js';
+import { ITEM } from '../js/data.js';
 import { makeShopper } from './bot.mjs';
 
 const SEEDS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
@@ -162,5 +163,236 @@ for (const arch of ARCHETYPES) {
     const wins = rows.filter(r => r.victory).length;
     const owned = (rows.reduce((s, r) => s + r.owned, 0) / rows.length).toFixed(1);
     console.log(label, per.padEnd(24), 'avg', avg, 'rows', owned, kite ? ('wins ' + wins + '/8') : '(death tide = cleared+1)');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WS5 — THE GOLD ECONOMY, PRINTED (plan 0077 §3 graduates into the tool).
+// "earned" = 100 start + bounty + clears, cumulative at each clear; the break
+// after tide N is the shopping window where tideNow = N+1. Classic kite bot,
+// so the table is the same measurement the trader prices were set against.
+// ---------------------------------------------------------------------------
+console.log('\nGOLD ECONOMY — earned by the break after each tide (kite bot avg over 8 seeds)');
+{
+  const table = {};
+  const unspent = [];
+  for (const sd of SEEDS) {
+    const sim = createSim(makeSeed(sd));
+    sim.pickBody('wrestler');
+    sim.buySpell('fireball');
+    const bot = makeShopper(sim, { kite: true });
+    const S = sim.S;
+    let last = 0, t = 0;
+    while (S.phase !== 'VICTORY' && t < MAXT) {
+      bot.step(); sim.tick(); t++;
+      if (S.cleared !== last) {
+        last = S.cleared;
+        (table[last] = table[last] || []).push(100 + S.ledger.bounty + S.ledger.clears);
+      }
+    }
+    unspent.push(S.gold);
+  }
+  const hdr = [], row = [];
+  for (let td = 1; td <= 10; td++) {
+    const a = table[td] || [];
+    hdr.push(String(td).padStart(6));
+    row.push(String(Math.round(a.reduce((s, x) => s + x, 0) / (a.length || 1))).padStart(6));
+  }
+  console.log('after tide ' + hdr.join(''));
+  console.log('earned ~   ' + row.join(''));
+  console.log('unspent at victory (classic bot) ~ '
+    + Math.round(unspent.reduce((s, x) => s + x, 0) / unspent.length) + 'g');
+}
+
+// ---------------------------------------------------------------------------
+// WS5 TRADER ARCHETYPES — do the new items EARN their price on the measured
+// curve? The brain is the classic shopper's loop plus: fruit stops cold at
+// tide 5 (the deliberate save), the trader list buys in order as gold allows
+// (the tide each piece lands is the affordability proof), and actives are
+// USED in the fight — a keg in the bag is dead stock. tools/bot.mjs is
+// untouched; it stays the byte-identical proof.
+// ---------------------------------------------------------------------------
+function makeTraderBot(sim, cfg, opts) {
+  opts = opts || {};
+  const kite = opts.kite !== false;
+  const S = sim.S;
+  let tick = 0;
+  const landed = {};   // trader id -> the break (after tide N) it was bought on
+  const used = {};     // trader id -> successful uses
+
+  function shopBreak() {
+    for (const id of cfg.buys) if (!S.spells[id]) sim.buySpell(id);
+    for (const [id, slot] of cfg.slots) {
+      if (S.spells[id] && S.slots[slot] !== id) sim.equip(id, slot);
+    }
+    for (const id of cfg.ranks) {
+      while (S.spells[id] && S.skillPts > 0 && sim.rankUp(id).ok) {}
+    }
+    for (const id of cfg.wearables) {
+      if (!S.items.some(i => i.id === id)) { sim.buyItem(id); break; }
+    }
+    // KEEPER PHILOSOPHY (measured, not guessed): once the bottle has landed,
+    // juice restocking stops FOR GOOD — the bottle is the one emergency ace,
+    // the coconuts are the plan. Measured 6/8 V vs 2/8 with guava rebuys
+    // (~100g/tide of juice is a slow bleed that permanent fruit beats) and
+    // the freed sixth slot is what the conch moves into.
+    if (S.tide >= 4 && !S.items.some(i => i.id === 'guava')
+      && !(cfg.bottleReplacesGuava && landed.bottle !== undefined)) sim.buyItem('guava');
+    // the trader list, in order — one save target at a time. A row may carry
+    // `from` (no rational sailor saves for a tide-10 tool on tide 5's break)
+    // or `restock` (consumables re-buy when the bag runs dry).
+    let saveFor = 0;
+    for (const row of cfg.trader) {
+      const inBag = S.items.some(i => i.id === row.id);
+      if (landed[row.id] !== undefined && (!row.restock || inBag)) continue;
+      if (row.from && S.tide < row.from) break;
+      if (inBag) continue;
+      if (sim.buyItem(row.id).ok) {
+        if (landed[row.id] === undefined) landed[row.id] = S.tide;
+        continue;
+      }
+      saveFor = ITEM[row.id].price;   // the purse guards this much for the target
+      break;
+    }
+    // two saving styles: TRADER-SAVER skips fruit cold from tide 5 (the
+    // deliberate save); WARD-KEEPER keeps eating but reserves the target's
+    // price — fruit only spends the gold ABOVE the save.
+    if (!(cfg.fruitStop && S.tide >= cfg.fruitStop)) {
+      let guard = 0;
+      while (S.gold > 300 + saveFor && guard++ < 40) {
+        if (!sim.buyFruit(['coconut', 'mango', 'starfruit'][(S.tide + guard) % 3], false).ok) break;
+      }
+    }
+    sim.skipTide();
+  }
+
+  function useActives() {
+    const h = S.hero;
+    // the bottle is the panic button now (cleanse + 55% of max); guava backs it up
+    if (h.hp < h.maxHp * 0.35) {
+      const bi = S.items.findIndex(i => i.id === 'bottle');
+      if (bi >= 0 && sim.useItem(bi).ok) { used.bottle = (used.bottle || 0) + 1; return; }
+      const gi = S.items.findIndex(i => i.id === 'guava');
+      if (gi >= 0) sim.useItem(gi);
+    }
+    let near = 0, bigNear = false;
+    for (const c of S.creeps) {
+      if (c.dead || c.receding) continue;
+      const dx = c.x - h.x, dz = c.z - h.z;
+      if (dx * dx + dz * dz <= 3.2 * 3.2) { near++; if (c.big) bigNear = true; }
+    }
+    const spot = S.items.findIndex(i => i.id === 'blackspot');
+    if (spot >= 0 && (bigNear || near >= 5) && sim.useItem(spot).ok) used.blackspot = (used.blackspot || 0) + 1;
+    const keg = S.items.findIndex(i => i.id === 'powderkeg');
+    if (keg >= 0 && near >= 4 && sim.useItem(keg).ok) used.powderkeg = (used.powderkeg || 0) + 1;
+    if (h.slamWardTicks <= 0) {
+      const conch = S.items.findIndex(i => i.id === 'ghostconch');
+      if (conch >= 0) {
+        for (const c of S.creeps) {
+          if (c.dead || c.receding || !c.big) continue;
+          const dx = c.x - h.x, dz = c.z - h.z;
+          if (dx * dx + dz * dz <= 6 * 6) {
+            if (sim.useItem(conch).ok) used.ghostconch = (used.ghostconch || 0) + 1;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  function fight() {
+    const h = S.hero;
+    if (h.dead) return;
+    useActives();
+    if (kite) {
+      let n = 0, cx = 0, cz = 0;
+      for (const c of S.creeps) {
+        if (c.dead || c.receding) continue;
+        const dx = c.x - h.x, dz = c.z - h.z;
+        if (dx * dx + dz * dz <= 16) { n++; cx += c.x; cz += c.z; }
+      }
+      if (n >= 3) {
+        cx /= n; cz /= n;
+        let ax = h.x - cx, az = h.z - cz;
+        const d = Math.hypot(ax, az) || 1;
+        sim.order(h.x + (ax / d) * 9, h.z + (az / d) * 9);
+      }
+    }
+    let t = null, td = Infinity;
+    for (const c of S.creeps) {
+      if (c.dead || c.receding) continue;
+      const dx = c.x - h.x, dz = c.z - h.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < td) { td = d2; t = c; }
+    }
+    if (!t) return;
+    for (const k of ['R', 'Q', 'W', 'E']) {
+      const id = S.slots[k];
+      if (!id) continue;
+      if ((S.cds[id] || 0) > 0) continue;
+      if (k === 'R' && S.creeps.length < 6) continue;
+      if (sim.cast(k, t.x, t.z).ok) break;
+    }
+  }
+
+  return {
+    landed, used,
+    step() {
+      tick++;
+      if (S.phase === 'BREAK') { shopBreak(); return; }
+      if (S.phase === 'TIDE' && tick % 5 === 0) fight();
+    },
+  };
+}
+
+const TRADER_ARCHETYPES = [
+  { name: 'TRADER-SAVER', body: 'wrestler',
+    cfg: { buys: ['fireball', 'spinslash', 'bulwark', 'frostsnap', 'chainspark', 'meteortide'],
+      slots: [],
+      ranks: ['fireball', 'spinslash', 'bulwark', 'frostsnap', 'chainspark', 'meteortide'],
+      wearables: ['flippers', 'reefblade'],
+      trader: [{ id: 'cutlass' }, { id: 'powderkeg' }], fruitStop: 5 } },
+  { name: 'WARD-KEEPER', body: 'magician',
+    cfg: { buys: ['sirenskiss', 'crackedshell', 'aloesalve', 'tradewinds', 'drownedtide'],
+      slots: [['sirenskiss', 'Q'], ['crackedshell', 'W'], ['tradewinds', 'E']],
+      ranks: ['sirenskiss', 'crackedshell', 'tradewinds', 'drownedtide'],
+      wearables: ['flippers', 'reefblade', 'shellplate', 'pearlpendant'],
+      trader: [{ id: 'bottle' }, { id: 'ghostconch', from: 8 }],
+      bottleReplacesGuava: true } },
+];
+
+function runTrader(arch, seed, kite) {
+  const sim = createSim(makeSeed(seed));
+  sim.pickBody(arch.body);
+  const bot = makeTraderBot(sim, arch.cfg, { kite });
+  let t = 0;
+  while (sim.S.phase !== 'VICTORY' && t < MAXT) {
+    bot.step();
+    sim.tick(); t++;
+    if (!kite && sim.S.deaths >= 1) break;
+  }
+  return { cleared: sim.S.cleared, victory: sim.S.phase === 'VICTORY',
+    landed: bot.landed, used: bot.used };
+}
+
+console.log('\nWS5 TRADER ARCHETYPES (kite clears + the buys land on the curve; standing still dies t5-9)');
+for (const arch of TRADER_ARCHETYPES) {
+  for (const kite of [false, true]) {
+    const rows = SEEDS.map(sd => runTrader(arch, sd, kite));
+    const label = (kite ? 'KITE ' : 'STAND') + ' ' + (arch.name + ' ' + arch.body).padEnd(22);
+    const per = rows.map(r => (r.victory ? 'V' : String(r.cleared))).join(' ');
+    const avg = (rows.reduce((s, r) => s + r.cleared, 0) / rows.length).toFixed(1);
+    const wins = rows.filter(r => r.victory).length;
+    console.log(label, per.padEnd(24), 'avg', avg, kite ? ('wins ' + wins + '/8') : '(death tide = cleared+1)');
+    if (kite) {
+      for (const { id } of arch.cfg.trader) {
+        const buys = rows.filter(r => r.landed[id] !== undefined);
+        const brk = buys.map(r => r.landed[id]).sort((a, b) => a - b);
+        const uses = rows.reduce((s, r) => s + (r.used[id] || 0), 0);
+        console.log('      ' + id.padEnd(11) + ' landed ' + buys.length + '/8'
+          + (brk.length ? ' (break after t' + brk[0] + '-t' + brk[brk.length - 1] + ')' : '')
+          + (ITEM[id].kind === 'active' ? '  uses ' + uses : ''));
+      }
+    }
   }
 }

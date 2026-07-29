@@ -304,6 +304,8 @@ export function createSim(seedInput) {
     // the old runs stay byte-identical)
     hideTicks: 0,
     goldShieldTicks: 0, goldShieldRate: 0,
+    slamWardTicks: 0,            // WS5 GHOST CONCH — negates the attacker-null lane
+
     flatDR: 0, dodgePct: 0,
     poisonPerSec: 0, poisonSec: 0, poisonSlowPct: 0,
     cleavePct: 0, cleaveR: 0,
@@ -370,7 +372,9 @@ function snapshot(S) {
     body: S.bodyId, xp: S.xp, level: S.level, pts: S.skillPts,
     shield: Math.round(S.hero.shield),
     projs: S.projs.length, allies: S.allies.length,
-    spells: spellsKey, items: S.items.map(i => i.id).join(','),
+    // WS5: charged items print id:charges; classic instances have no charges
+    // field, so classic-run snapshot strings are byte-identical to v0.8.0.
+    spells: spellsKey, items: S.items.map(i => i.id + (i.charges != null ? ':' + i.charges : '')).join(','),
     ledger: { ...S.ledger },
   };
 }
@@ -422,6 +426,7 @@ function tickOnce(S) {
     S.hero.goldShieldTicks--;
     if (S.hero.goldShieldTicks <= 0) S.hero.goldShieldRate = 0;
   }
+  if (S.hero.slamWardTicks > 0) S.hero.slamWardTicks--;
 
   // --- WS3 corpse records age out (FIFO by push order, so the front expires first) ---
   while (S.corpses.length && S.corpses[0].until <= S.tick) S.corpses.shift();
@@ -623,6 +628,7 @@ function heroDown(S) {
   S.hero.hideTicks = 0;
   S.hero.goldShieldTicks = 0;
   S.hero.goldShieldRate = 0;
+  S.hero.slamWardTicks = 0;
   recomputeStats(S);
   S.deaths++;
   S.tide = Math.max(0, S.tide - 1);   // this tide didn't count; it rolls in again
@@ -914,11 +920,15 @@ function buyFruit(S, id, pack) {
 function buyItem(S, id) {
   const it = ITEM[id];
   if (!it) return { ok: false, why: 'none' };
+  // WS5: the PIRATE TRADER docks at tide 6 — rows carry their own unlock.
+  // Classic shack rows have no tide field, so this gate never fires for them.
+  const unlock = it.tide || 1;
+  if (tideNow(S) < unlock) return { ok: false, why: 'locked', tide: unlock };
   if (S.items.length >= RULES.itemSlots) return { ok: false, why: 'slots' };
   if (S.gold < it.price) return { ok: false, why: 'gold' };
   S.gold -= it.price;
   S.ledger.spent += it.price;
-  S.items.push({ id });
+  S.items.push(it.charges ? { id, charges: it.charges } : { id });
   recomputeStats(S);
   ev(S, 'buy_item', { id });
   return { ok: true };
@@ -928,9 +938,25 @@ function useItem(S, idx) {
   const inst = S.items[idx | 0];
   if (!inst) return { ok: false, why: 'none' };
   const it = ITEM[inst.id];
-  if (it.kind !== 'potion') return { ok: false, why: 'kind' };
+  if (it.kind !== 'potion' && it.kind !== 'active') return { ok: false, why: 'kind' };
   if (S.hero.dead) return { ok: false, why: 'dead' };
   const u = it.use;
+  const h = S.hero;
+  // --- WS5 refusals, BEFORE anything spends (the WS3 refusal law: a use over
+  // the wrong world costs nothing — the charge stays). NEW verbs only; the
+  // four classic potions are behaviourally frozen (guava heals at full HP).
+  if (u.nova) {
+    let found = false;
+    for (const c of S.creeps) {
+      if (c.dead || c.receding) continue;
+      const dx = c.x - h.x, dz = c.z - h.z;
+      const rr = u.nova.r + c.radius;
+      if (dx * dx + dz * dz <= rr * rr) { found = true; break; }
+    }
+    if (!found) return { ok: false, why: 'target' };
+  }
+  if (u.healPct && h.hp >= h.maxHp) return { ok: false, why: 'full' };
+
   if (u.heal) {
     const healed = Math.min(S.hero.maxHp - S.hero.hp, u.heal);
     S.hero.hp += healed;
@@ -941,10 +967,35 @@ function useItem(S, idx) {
     const { sec, ...mods } = u.buff;
     addBuff(S, { id: inst.id, ticks: secs(sec), mods });
   }
-  S.items.splice(idx | 0, 1);   // inventory is UI-side state, not a unit array
+  // --- WS5 active verbs (one interpreter, no bespoke items) ---
+  if (u.nova) {
+    // POWDER KEG (dmg) / THE BLACK SPOT (dmg 0 = riders only, FOGHORN
+    // precedent — no hit events, no float spam). Centred on the hero.
+    areaDamage(S, h.x, h.z, u.nova.r, u.nova.dmg,
+      { kind: 'spell', stunSec: u.nova.stunSec, vulnPct: u.nova.vulnPct, vulnSec: u.nova.vulnSec });
+    ev(S, 'aoe_hit', { x: h.x, z: h.z, r: u.nova.r, cat: 'ITEM' });
+  }
+  if (u.ward) {
+    h.slamWardTicks = secs(u.ward.sec);
+    ev(S, 'slam_ward_up', { sec: u.ward.sec });
+  }
+  if (u.healPct) {
+    const healed = Math.min(h.maxHp - h.hp, Math.round(h.maxHp * u.healPct / 100));
+    h.hp += healed;
+    ev(S, 'heal', { x: h.x, z: h.z, amount: Math.round(healed) });
+    if (u.shedStun) h.stun = 0;
+  }
+  if (it.kind === 'active') {
+    inst.charges--;
+    if (inst.charges <= 0) S.items.splice(idx | 0, 1);
+  } else {
+    S.items.splice(idx | 0, 1);   // inventory is UI-side state, not a unit array
+  }
   recomputeStats(S);
-  ev(S, 'use_item', { id: inst.id });
-  return { ok: true };
+  const used = { id: inst.id };
+  if (it.kind === 'active') used.charges = inst.charges;
+  ev(S, 'use_item', used);
+  return it.kind === 'active' ? { ok: true, charges: inst.charges } : { ok: true };
 }
 
 // THE TIDE TABLET (§2: cheap respec is SACRED). 100g: every pearl comes back,
@@ -996,12 +1047,22 @@ function recomputeStats(S) {
   hpFlat += FRUIT.coconut.per.hp * S.fruit.coconut;
   regenFlat += FRUIT.coconut.per.regen * S.fruit.coconut;
 
-  // items (passives; potions act through buffs)
+  // WS3 rider locals — declared ABOVE the items loop (WS5): trader passives
+  // feed the SAME lanes the spell racks feed, in the same accumulators.
+  let flatDR = 0, dodgePct = 0, poisonPerSec = 0, poisonSec = 0, poisonSlowPct = 0;
+  let cleavePct = 0, cleaveR = 0, procPct = 0, procDmg = 0, procR = 0;
+  let pinchPct = 0, pinchDmg = 0, pinchSec = 0, burnPerSec = 0, burnR = 0;
+  let dmgPct = 0, cdrPct = 0;
+
+  // items (passives; potions act through buffs). WS5 trader passives ride the
+  // rider lanes — only the four lanes a shipped row actually uses are read.
   for (const inst of S.items) {
     const m = ITEM[inst.id].mods;
     if (!m) continue;
     dmgFlat += m.dmg || 0; hpFlat += m.hp || 0; regenFlat += m.regen || 0;
     spFlat += m.sp || 0; asPct += m.asPct || 0; msPct += m.msPct || 0;
+    crit += m.crit || 0; flatDR += m.flatDR || 0; dmgPct += m.dmgPct || 0;
+    if (m.cleavePct) { cleavePct += m.cleavePct; cleaveR = Math.max(cleaveR, m.cleaveR); }
   }
 
   // slotted passives ONLY — three slots force real choices (§6's 3+1 layout).
@@ -1009,10 +1070,6 @@ function recomputeStats(S) {
   // every shipped big before it is an active, so nothing changes for them.
   // spNow mirrors the h.sp assignment below exactly (passives never grant sp),
   // so sp-scaled riders like SHOREBREAK's proc damage compute here once.
-  let flatDR = 0, dodgePct = 0, poisonPerSec = 0, poisonSec = 0, poisonSlowPct = 0;
-  let cleavePct = 0, cleaveR = 0, procPct = 0, procDmg = 0, procR = 0;
-  let pinchPct = 0, pinchDmg = 0, pinchSec = 0, burnPerSec = 0, burnR = 0;
-  let dmgPct = 0, cdrPct = 0;
   const spNow = Math.round(base.sp + spFlat);
   for (const k of ['Q', 'W', 'E', 'R']) {
     const id = S.slots[k];
@@ -1355,7 +1412,13 @@ function areaDamage(S, x, z, r, dmg, o) {
     if (o.slowPct) { c.slowTicks = secs(o.slowSec); c.slowMult = 1 - o.slowPct / 100; }
     if (o.rootSec) c.rootTicks = secs(o.rootSec * (c.big ? 0.5 : 1));
     if (o.stunSec) c.stunTicks = secs(o.stunSec * (c.big ? 0.5 : 1));
-    if (o.vulnPct) { c.vulnTicks = secs(o.vulnSec); c.vulnPct = o.vulnPct; }
+    if (o.vulnPct) {
+      // WS5: two vuln sources exist now (CRACKED SHELL + THE BLACK SPOT) —
+      // mirror the poison-slow law: the strongest pct wins while one runs,
+      // the clocks take the max. Single-source reapplication is identical.
+      c.vulnPct = c.vulnTicks > 0 ? Math.max(c.vulnPct, o.vulnPct) : o.vulnPct;
+      c.vulnTicks = Math.max(c.vulnTicks, secs(o.vulnSec));
+    }
     if (o.weakenPct) { c.weakenTicks = secs(o.weakenSec); c.weakenPct = o.weakenPct; }
     if (o.missPct) { c.missTicks = secs(o.missSec); c.missPct = o.missPct; }
   }
@@ -1672,6 +1735,12 @@ function applyPoison(S, c, h) {
 function hurtHero(S, amount, attacker) {
   const h = S.hero;
   if (h.dead) return;
+  // WS5 GHOST CONCH: a live ward negates the attacker-null lane outright —
+  // today that is boss slams only; anything WS6+ adds with attacker null
+  // (hostile meteors, casts) inherits it silently — re-word the tooltip then,
+  // never the engine. The mirror of dodge (which is attacker-only): nothing
+  // downstream spends — no gold burn, no shield, no thorns, no death.
+  if (!attacker && h.slamWardTicks > 0) { ev(S, 'slam_ward'); return; }
   if (attacker && h.dodgePct > 0 && S.rng() < h.dodgePct / 100) {
     ev(S, 'dodge', { x: h.x, z: h.z });
     return;

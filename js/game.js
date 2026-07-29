@@ -14,12 +14,12 @@ import { TXT, tf, localizeDom, i18nAudit } from './i18n.js';
 import { makeSeed } from './rng.js';
 import { createSim, COVE, MARKET, ZONE, TUNE, PHASE, SIM_HZ, TICK_S, creepHp, tideQuota, clearGold, tideNow, secs } from './sim.js';
 import { createScene, PAL } from './scene.js';
-import { SPELL, SPELLS, BODIES, MOD, CAT_COLOR, RULES, rv } from './data.js';
+import { SPELL, SPELLS, BODIES, MOD, CAT_COLOR, RULES, rv, ITEMS } from './data.js';
 import { initShop, shopFrame, anyShopOpen, closeShops, toggleCastaway, useItemSlot } from './shop.js';
 import { initGhost, ghostFrame, ghostEvent, ghostRunStart, ghostDebug, toggleStandings, mmss } from './ghost.js';
 import { AUDIO } from './audio.js';
 
-export const VERSION = '0.8.0';
+export const VERSION = '0.9.0';
 const BUILD = (typeof window !== 'undefined' && window.__RESORT_BUILD) || 'dev';
 
 const TICK_MS = 1000 / SIM_HZ;
@@ -75,6 +75,7 @@ const HINTS = [
   'THE DEAD STAY SIX SECONDS. THE DROWNED TIDE IS PUNCTUAL.',
   'STUNS HIT BOSSES AT HALF STRENGTH. STILL WORTH IT.',
   'MOD TIDES DRESS THE PART. READ WHAT THEY CARRY.',
+  'THE PIRATE TRADER DOCKS AT TIDE 6. SAVE LIKE A SAILOR.',
 ];
 let hintIdx = -1;
 let hintAt = 0;
@@ -475,6 +476,17 @@ function consumeEvents() {
         break;
       case 'gold_ward':
         pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, TXT('THE PURSE TAKES THE HITS'), '#F5C542', 15);
+        break;
+      case 'slam_ward_up':
+        // GHOST CONCH blown: the ward is up for sec seconds
+        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, tf(TXT('THE CONCH SINGS — %1s'), e.sec), '#7FE7D8', 15);
+        scene.popRing(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, 0x7FE7D8, 1.0);
+        break;
+      case 'slam_ward':
+        // a slam breaking harmless over the ward — a negated hit IS a whiff
+        pushFloat(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, TXT('THE CONCH HOLDS'), '#7FE7D8', 15);
+        scene.popRing(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, 0x7FE7D8, 1.2);
+        AUDIO.combat('whiff');
         break;
       case 'hide':
         scene.popRing(S.hero.x + ZOFF.x, S.hero.z + ZOFF.z, 0x3A4A52, 1.0);
@@ -1090,7 +1102,7 @@ function installDebugApi() {
     tuning: TUNE,
     rules: RULES,
     curves: { creepHp, tideQuota, clearGold },
-    content: { SPELLS, BODIES },
+    content: { SPELLS, BODIES, ITEMS },
     tideNow: () => tideNow(sim.S),
     i18nAudit,
     THREE,

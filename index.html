@@ -236,6 +236,8 @@ button.btn:active{transform:translateY(3px); box-shadow:0 1px 0 #6E5415, inset 0
           border:1px solid var(--gold2); font-size:18px}
 .itemchip b{position:absolute; top:1px; left:3px; font-size:8px; color:rgba(231,194,92,.8)}
 .itemchip.potion{border-color:#7AC8FF}
+.itemchip.active{border-color:#E7C25C}        /* WS5 trader actives: tap to spend a charge */
+.itemchip .chg{position:absolute; bottom:1px; right:3px; font-size:8px; color:#E7C25C}
 .itemchip.worn{opacity:.82; cursor:default}   /* wearables are info, not buttons */
 
 /* --- the shop sheet (racks / fruit stand / surf shack) --- */
@@ -350,6 +352,7 @@ body.touch .slot.big{width:68px; height:68px}
 body.touch .slot .ico{font-size:26px}
 body.touch .itemchip{width:60px; height:60px; font-size:24px}
 body.touch .itemchip b{font-size:10px}
+body.touch .itemchip .chg{font-size:10px}
 body.touch #items{bottom:calc(64px + var(--sab))}
 body.touch button.btn{min-height:60px}
 body.touch button.sbtn{min-height:48px}
@@ -515,19 +518,19 @@ body.touch .mutebtn{width:60px; height:60px; font-size:24px}
   </div>
 </div>
 
-<script>window.__RESORT_BUILD='20260729001134';</script>
+<script>window.__RESORT_BUILD='20260729012636';</script>
 <script type="importmap">
 {
   "imports": {
-    "three":        "./vendor/three.module.min.js?v=20260729001134",
-    "./js/i18n.js": "./js/i18n.js?v=20260729001134",
-    "./js/rng.js":  "./js/rng.js?v=20260729001134",
-    "./js/data.js": "./js/data.js?v=20260729001134",
-    "./js/sim.js":  "./js/sim.js?v=20260729001134",
-    "./js/scene.js":"./js/scene.js?v=20260729001134",
-    "./js/shop.js": "./js/shop.js?v=20260729001134",
-    "./js/ghost.js":"./js/ghost.js?v=20260729001134",
-    "./js/audio.js":"./js/audio.js?v=20260729001134"
+    "three":        "./vendor/three.module.min.js?v=20260729012636",
+    "./js/i18n.js": "./js/i18n.js?v=20260729012636",
+    "./js/rng.js":  "./js/rng.js?v=20260729012636",
+    "./js/data.js": "./js/data.js?v=20260729012636",
+    "./js/sim.js":  "./js/sim.js?v=20260729012636",
+    "./js/scene.js":"./js/scene.js?v=20260729012636",
+    "./js/shop.js": "./js/shop.js?v=20260729012636",
+    "./js/ghost.js":"./js/ghost.js?v=20260729012636",
+    "./js/audio.js":"./js/audio.js?v=20260729012636"
   }
 }
 </script>
@@ -539,7 +542,7 @@ body.touch .mutebtn{width:60px; height:60px; font-size:24px}
     if (d && !d.textContent) d.textContent = String((e && e.message) || e);
     document.getElementById('boot-error').classList.add('show');
   });
-  import('./js/game.js?v=20260729001134').catch(err => {
+  import('./js/game.js?v=20260729012636').catch(err => {
     document.getElementById('boot-error-detail').textContent = String(err && err.message || err);
     document.getElementById('boot-error').classList.add('show');
   });

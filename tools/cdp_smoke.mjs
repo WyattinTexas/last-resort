@@ -2029,6 +2029,454 @@ const main = async () => {
   ok(uiGuard.phase === 'TIDE' && uiGuard.qwer === false && uiGuard.chips === 0 && uiGuard.mute >= 3,
     'WS4 touched no chrome: the WS2 matrix answers hold mid-tide (naked run = zero buttons)', JSON.stringify(uiGuard));
 
+  // --- 8.11 WS5 ITEMS: the PIRATE TRADER, charges, the ward, the one-home law
+  // Idiom unchanged from 8.9: __ws3jump/__ws3arm labs, EXACT numbers, hostile
+  // damage through real S.pendings pushes (the debug hurtHero bypasses the
+  // stack). Event asserts read S.events INSIDE one eval — the rAF drain can't
+  // interleave a synchronous evaluation.
+  console.log('\nWS5 ITEMS — the PIRATE TRADER docks at tide 6');
+
+  // pool integrity: 16 rows, 8 a side, trader rows gated + priced + charged,
+  // every name/desc TXT-resolves (items carry no %N — resolved means clean)
+  const ipool = await evalJs(`(()=>{
+    const IT = RESORT.content.ITEMS;
+    const trader = IT.filter(i => i.shop === 'trader');
+    const shack = IT.filter(i => (i.shop || 'shack') === 'shack');
+    const actives = trader.filter(i => i.kind === 'active');
+    const bad = IT.filter(i => !RESORT.TXT(i.name) || !RESORT.TXT(i.desc) || /%\\d/.test(RESORT.TXT(i.desc))).map(i => i.id);
+    return { n: IT.length, trader: trader.length, shack: shack.length,
+      gated: trader.every(i => i.tide === 6 && i.price > 0),
+      actives: actives.length, charged: actives.every(i => i.charges >= 1), bad };
+  })()`);
+  ok(ipool.n === 16 && ipool.trader === 8 && ipool.shack === 8,
+    'the item pool holds SIXTEEN rows — the shack eight untouched, eight new at the trader',
+    `${ipool.shack}+${ipool.trader}`);
+  ok(ipool.gated && ipool.actives === 4 && ipool.charged && ipool.bad.length === 0,
+    'every trader row unlocks at tide 6 and is priced; all four actives carry charges; descs resolve',
+    ipool.bad.join(',') || 'clean');
+
+  // the tide gate: a fresh run cannot buy trader stock, and the refusal is free
+  const lock = await evalJs(`(()=>{
+    RESORT.setSeed('ws5-lock');
+    RESORT.pickBody('wrestler');
+    RESORT.giveGold(5000);
+    const g0 = RESORT.state.gold;
+    const r = RESORT.buyItem('cutlass');
+    return { r, held: RESORT.state.gold === g0, bag: RESORT.state.items.length };
+  })()`);
+  ok(!lock.r.ok && lock.r.why === 'locked' && lock.r.tide === 6 && lock.held && lock.bag === 0,
+    'the trader refuses before tide 6 (why:locked carries the tide; gold untouched)', JSON.stringify(lock.r));
+
+  // the trader sheet on a fresh run: eight rows, every one wearing the lock
+  await evalJs('RESORT.state.hero.x = 0; RESORT.state.hero.z = 10; RESORT.state.hero.px = 0; RESORT.state.hero.pz = 10; 1');
+  const tsheet = await evalJs(`(async()=>{
+    for (let i = 0; i < 40; i++) {
+      if (document.getElementById('sheet').classList.contains('show')
+        && document.querySelectorAll('#sheet-rows .srow').length) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const rows = document.querySelectorAll('#sheet-rows .srow').length;
+    const locked = document.querySelectorAll('#sheet-rows .srow.locked').length;
+    const btn = document.querySelector('#sheet-rows .srow.locked .sbtn');
+    return { title: document.getElementById('sheet-title').textContent,
+      rows, locked, btnDisabled: btn && btn.disabled, btnText: btn && btn.textContent }; })()`);
+  ok(/PIRATE TRADER/.test(tsheet.title) && tsheet.rows === 8 && tsheet.locked === 8,
+    'the PIRATE TRADER sheet shows its eight rows, every one locked on tide 1 (stock filter holds)',
+    `rows=${tsheet.rows} locked=${tsheet.locked}`);
+  ok(tsheet.btnDisabled === true && /6/.test(tsheet.btnText || ''),
+    'locked trader rows wear a disabled TIDE 6 button (the spellRow grammar)', tsheet.btnText);
+  await evalJs('RESORT.state.hero.x = 0; RESORT.state.hero.z = -14; RESORT.state.hero.px = 0; RESORT.state.hero.pz = -14; 1');
+
+  // unlock: the tide-jump lab buys clean and the ledger law holds after
+  const iunlock = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-unlock', 'wrestler', 7);
+    const r = RESORT.buyItem('cutlass');
+    return { ok: r.ok, bag: S.items.length,
+      law: S.gold === 100 + 9000 + S.ledger.bounty + S.ledger.clears - S.ledger.spent };
+  })()`);
+  ok(iunlock.ok && iunlock.bag === 1 && iunlock.law,
+    'from tide 6 the trader sells, and the ledger law holds after the buy');
+
+  // charges lifecycle: buy -> ×3 chip -> spend to ×2 (the ikey carries
+  // charges — a stale badge is a lie) -> spend out -> chip + snapshot empty
+  const chg1 = await evalJs(`(async()=>{
+    const S = __ws3jump('ws5-chg', 'wrestler', 7);
+    RESORT.buyItem('powderkeg');
+    const snap = RESORT.snapshot().items;
+    let badge = null;
+    for (let i = 0; i < 50; i++) {
+      const c = document.querySelector('#items .itemchip.active .chg');
+      if (c) { badge = c.textContent; break; }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return { snap, badge }; })()`);
+  ok(chg1.snap === 'powderkeg:3' && chg1.badge === '×3',
+    'a bought keg wears an ACTIVE chip with its ×3 badge; the snapshot prints powderkeg:3', JSON.stringify(chg1));
+  const chg2 = await evalJs(`(async()=>{
+    __ws3arm();
+    RESORT.spawn(3, 'crab');
+    const S = RESORT.state;
+    for (const c of S.creeps) if (!c.dead) { c.x = S.hero.x + 1; c.z = S.hero.z; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000; }
+    const u = RESORT.useItem(0);
+    const snap = RESORT.snapshot().items;
+    let badge = null;
+    for (let i = 0; i < 50; i++) {
+      const c = document.querySelector('#items .itemchip.active .chg');
+      if (c && c.textContent === '×2') { badge = c.textContent; break; }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return { ok: u.ok, charges: u.charges, snap, badge }; })()`);
+  ok(chg2.ok && chg2.charges === 2 && chg2.snap === 'powderkeg:2' && chg2.badge === '×2',
+    'one light: the charge spends and the chip badge re-renders ×2 (stale-badge trap closed)', JSON.stringify(chg2));
+  const chg3 = await evalJs(`(async()=>{
+    RESORT.useItem(0); RESORT.useItem(0);
+    const snap = RESORT.snapshot().items;
+    let chips = -1;
+    for (let i = 0; i < 50; i++) {
+      chips = document.querySelectorAll('#items .itemchip').length;
+      if (chips === 0) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return { snap, chips, bag: RESORT.state.items.length }; })()`);
+  ok(chg3.snap === '' && chg3.bag === 0 && chg3.chips === 0,
+    'the third use splices the keg — bag, snapshot and chips all read empty');
+
+  // the keg: exact damage, and the world-refusal costs nothing (WS3 law)
+  const keg = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-keg', 'wrestler', 7);
+    RESORT.buyItem('powderkeg');
+    __ws3arm();
+    const refuse = RESORT.useItem(0);
+    const kept = S.items[0].charges;
+    RESORT.spawn(2, 'crab');
+    for (const c of S.creeps) if (!c.dead) { c.x = S.hero.x + 1.2; c.z = S.hero.z; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 1000; }
+    RESORT.useItem(0);
+    const hps = S.creeps.filter(c => !c.receded).map(c => c.hp);
+    return { refuse: refuse.why, kept, hps };
+  })()`);
+  ok(keg.refuse === 'target' && keg.kept === 3,
+    'a keg over empty sand refuses (why:target) and the charge stays', JSON.stringify([keg.refuse, keg.kept]));
+  ok(keg.hps.length === 2 && keg.hps.every(h => h === 780),
+    'the keg lands EXACTLY 220 on everything within reach', JSON.stringify(keg.hps));
+
+  // THE BLACK SPOT: a 0-damage mark (rider-only, FOGHORN precedent), the
+  // ×1.25 shows in a swing AND a venom chunk, and vuln MAX-MERGES
+  const spot = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-spot', 'wrestler', 7);
+    RESORT.buyItem('blackspot');
+    __ws3arm();
+    RESORT.spawn(2, 'crab');
+    const cs = S.creeps.filter(c => !c.dead);
+    for (const c of cs) { c.x = S.hero.x + 1; c.z = S.hero.z - 0.8; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000; }
+    RESORT.useItem(0);
+    const marks = cs.map(c => c.vulnPct + ':' + c.vulnTicks);
+    const untouched = cs.every(c => c.hp === 90000);
+    // one swing on the mark: round(dmg × 1.25), suplex counter parked at 1
+    S.hero.swingN = 0;
+    const v = cs[0];
+    const hp0 = v.hp + cs[1].hp;
+    let g = 0;
+    while (v.hp + cs[1].hp === hp0 && g++ < 200) RESORT.runTicks(1);
+    const swingTook = hp0 - (v.hp + cs[1].hp);
+    const want = Math.round(S.hero.dmg * 1.25);
+    // one venom chunk, marked vs unmarked TWINS: identical poked dots walk the
+    // identical float path, so the chunk is the same number for both and the
+    // ×1.25 is the only difference (floor(3.5999…)=3 taught us not to predict
+    // float sums — measure the pair instead)
+    for (const c of cs) { c.x = S.hero.x + 15; c.px = c.x; }
+    const d = cs[1];
+    v.vulnTicks = 0;                       // the control twin loses its mark
+    const vhp0 = v.hp, dhp0 = d.hp;
+    for (const c of [v, d]) { c.dotTicks = 10; c.dotPerSec = 8; c.dotAcc = 0; }
+    RESORT.runTicks(11);
+    const plain = vhp0 - v.hp, marked = dhp0 - d.hp;
+    return { marks, untouched, swingTook, want, plain, marked };
+  })()`);
+  ok(spot.marks.every(m => m === '25:120') && spot.untouched,
+    'THE BLACK SPOT marks the pack +25% for 6s and deals NOTHING itself', JSON.stringify(spot.marks));
+  ok(spot.swingTook === spot.want,
+    'a marked creep takes ×1.25 from a swing, formula-exact', `${spot.swingTook} = round(dmg×1.25)`);
+  ok(spot.plain > 0 && spot.marked === Math.round(spot.plain * 1.25) && spot.marked > spot.plain,
+    'twin venom chunks: the marked twin takes round(chunk × 1.25) of the identical dot',
+    `${spot.plain} -> ${spot.marked}`);
+  const merge = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-merge', 'wrestler', 7);
+    RESORT.buySpell('crackedshell');
+    RESORT.buyItem('blackspot');
+    __ws3arm();
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = S.hero.x + 15; c.z = S.hero.z; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 900000;
+    const slot = ['Q', 'W', 'E'].find(k => S.slots[k] === 'crackedshell');
+    RESORT.cast(slot, c.x, c.z);
+    const pct0 = c.vulnPct;
+    c.x = S.hero.x + 1; c.px = c.x;
+    RESORT.useItem(0);
+    const pctSpot = c.vulnPct;
+    S.cds.crackedshell = 0;
+    RESORT.cast(slot, c.x, c.z);
+    const pctHold = c.vulnPct;
+    c.vulnTicks = 0;
+    S.cds.crackedshell = 0;
+    RESORT.cast(slot, c.x, c.z);
+    return { pct0, pctSpot, pctHold, pctFresh: c.vulnPct };
+  })()`);
+  ok(merge.pct0 === 15 && merge.pctSpot === 25 && merge.pctHold === 25 && merge.pctFresh === 15,
+    'vuln MAX-MERGES: the spot(25) upgrades a shell(15) and holds through its reapply; expired takes the fresh value',
+    JSON.stringify(merge));
+
+  // GHOST CONCH: the ward negates the attacker-null lane OUTRIGHT — nothing
+  // downstream spends (shield, purse) — then expiry lets the sea back in
+  const conch = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-conch', 'wrestler', 7);
+    RESORT.buyItem('ghostconch');
+    RESORT.buyItem('kava');
+    __ws3arm();
+    RESORT.useItem(S.items.findIndex(i => i.id === 'kava'));
+    S.hero.goldShieldTicks = 800; S.hero.goldShieldRate = 6;
+    const u = RESORT.useItem(S.items.findIndex(i => i.id === 'ghostconch'));
+    const ward = S.hero.slamWardTicks;
+    const hp0 = S.hero.hp, sh0 = S.hero.shield, g0 = S.gold;
+    const ev0 = S.events.filter(e => e.type === 'slam_ward').length;
+    S.pendings.push({ due: S.tick + 1, x: S.hero.x, z: S.hero.z, r: 3, dmg: 500, side: 'hostile' });
+    RESORT.runTicks(2);
+    const negated = S.hero.hp === hp0 && S.hero.shield === sh0 && S.gold === g0;
+    const evd = S.events.filter(e => e.type === 'slam_ward').length - ev0;
+    S.hero.slamWardTicks = 0;
+    S.pendings.push({ due: S.tick + 1, x: S.hero.x, z: S.hero.z, r: 3, dmg: 500, side: 'hostile' });
+    RESORT.runTicks(2);
+    return { ok: u.ok, charges: u.charges, ward, negated, evd,
+      hpHeld: S.hero.hp === hp0, goldSpent: g0 - S.gold, shieldHeld: S.hero.shield === sh0 };
+  })()`);
+  ok(conch.ok && conch.charges === 1 && conch.ward === 100,
+    'the conch blows: secs(5) of ward, one of two charges spent', `ward=${conch.ward}t`);
+  ok(conch.negated && conch.evd === 1,
+    'a slam inside the window breaks HARMLESS — hp, shield and purse all untouched, slam_ward spoke', `evs=${conch.evd}`);
+  ok(conch.hpHeld && conch.goldSpent === Math.ceil(500 / 6) && conch.shieldHeld,
+    'after expiry the same slam meets the honest stack: the COWRIE purse pays ceil(500/6), hp never touched',
+    `gold=${conch.goldSpent}`);
+  const allySlam = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-ally', 'wrestler', 8);
+    RESORT.buySpell('reefgolem');
+    RESORT.buyItem('ghostconch');
+    __ws3arm();
+    RESORT.cast('R', S.hero.x + 2, S.hero.z);
+    const a = S.allies[0];
+    a.x = S.hero.x + 1; a.z = S.hero.z; a.px = a.x; a.pz = a.z;
+    RESORT.useItem(S.items.findIndex(i => i.id === 'ghostconch'));
+    const ah0 = a.hp, hh0 = S.hero.hp;
+    S.pendings.push({ due: S.tick + 1, x: S.hero.x, z: S.hero.z, r: 3, dmg: 300, side: 'hostile' });
+    RESORT.runTicks(2);
+    return { aTook: ah0 - a.hp, hTook: Math.round(hh0 - S.hero.hp) };
+  })()`);
+  ok(allySlam.aTook === 300 && allySlam.hTook <= 0,
+    'the ward is HERO-ONLY: the golem eats the slam beside an untouched castaway', JSON.stringify(allySlam));
+
+  // THE ONE-HOME LAW (WS3 decision, binding forever): no item intercepts death
+  const oneHome = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-home', 'wrestler', 7);
+    RESORT.buyItem('bottle');
+    __ws3arm();
+    S.hero.hp = 1;
+    S.pendings.push({ due: S.tick + 1, x: S.hero.x, z: S.hero.z, r: 3, dmg: 5000, side: 'hostile' });
+    RESORT.runTicks(2);
+    const deadUse = RESORT.useItem(0);
+    return { deaths: S.deaths, dead: S.hero.dead, bag: S.items.length, why: deadUse.why };
+  })()`);
+  ok(oneHome.deaths === 1 && oneHome.dead && oneHome.bag === 1 && oneHome.why === 'dead',
+    'THE ONE-HOME LAW: a bagged bottle never intercepts a death (SECOND SUNRISE owns cheat-death); corpses cannot read',
+    JSON.stringify(oneHome));
+
+  // the bottle: full-HP refusal keeps the charge; the read is formula-exact
+  const bottle = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-bottle', 'wrestler', 7);
+    RESORT.buyItem('bottle');
+    __ws3arm();
+    const full = RESORT.useItem(0);
+    const kept = S.items.length;
+    S.hero.hp = Math.round(S.hero.maxHp * 0.4);
+    S.hero.stun = 40;
+    const r = RESORT.useItem(0);
+    return { fullWhy: full.why, kept, ok: r.ok, hp: S.hero.hp,
+      want: Math.round(S.hero.maxHp * 0.4) + Math.round(S.hero.maxHp * 0.55),
+      stun: S.hero.stun, bag: S.items.length };
+  })()`);
+  ok(bottle.fullWhy === 'full' && bottle.kept === 1,
+    'ALREADY WHOLE: the bottle refuses at full HP and keeps its one charge (the guava quirk stays frozen)');
+  ok(bottle.ok && bottle.hp === bottle.want && bottle.stun === 0 && bottle.bag === 0,
+    'read at 40%: restores round(max × 0.55) exactly, sheds the stun, and the empty bottle leaves the bag',
+    `hp=${bottle.hp}/${bottle.want}`);
+
+  // rider passives feed the WS3 lanes — cutlass cleaves alone and SUMS
+  const iclv = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-iclv', 'wrestler', 7);
+    RESORT.buyItem('cutlass');
+    __ws3arm();
+    RESORT.spawn(2, 'crab');
+    const cs = S.creeps.filter(c => !c.dead);
+    const v = cs[0], n = cs[1];
+    v.x = S.hero.x; v.z = S.hero.z - 1.2; v.px = v.x; v.pz = v.z; v.hp = v.maxHp = 90000;
+    n.x = v.x; n.z = v.z - 1.0; n.px = n.x; n.pz = n.z; n.hp = n.maxHp = 90000;
+    S.hero.swingN = 0;
+    const n0 = n.hp;
+    let g = 0;
+    while (n.hp === n0 && g++ < 300) RESORT.runTicks(1);
+    const splash = n0 - n.hp;
+    RESORT.buySpell('widewake');
+    return { splash, want: Math.max(1, Math.round(S.hero.dmg * 0.20)), sum: S.hero.cleavePct, r: S.hero.cleaveR };
+  })()`);
+  ok(iclv.splash === iclv.want,
+    'the CUTLASS cleaves with no spell owned — 20% splash, formula-exact', `${iclv.splash}`);
+  ok(iclv.sum === 45 && iclv.r === 1.7,
+    'cutlass + WIDE WAKE r1 SUM on the one lane (20 + 25 = 45%, radius maxed)', `${iclv.sum}%`);
+
+  // KRAKEN SCALE: −6 on swings (floor 1, sums with BARNACLE) — slams ignore it
+  const idr = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-idr', 'wrestler', 7);
+    RESORT.buyItem('krakenscale');
+    __ws3arm();
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = S.hero.x; c.z = S.hero.z - 1.0; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 900000;
+    S.hero.regen = 0;
+    const cd = c.dmg;
+    const hp0 = S.hero.hp;
+    let g = 0;
+    while (S.hero.hp === hp0 && g++ < 200) RESORT.runTicks(1);
+    const took1 = hp0 - S.hero.hp;
+    RESORT.buySpell('barnaclehide');
+    S.hero.regen = 0;                       // recompute reset the poke (gotcha 2)
+    const hp1 = S.hero.hp;
+    g = 0;
+    while (S.hero.hp === hp1 && g++ < 200) RESORT.runTicks(1);
+    const took2 = hp1 - S.hero.hp;
+    c.dmg = 5;                              // the floor: 5 - 12 -> always land 1
+    const hp2 = S.hero.hp;
+    g = 0;
+    while (S.hero.hp === hp2 && g++ < 200) RESORT.runTicks(1);
+    const took3 = hp2 - S.hero.hp;
+    c.dead = true; c.receded = true;        // clear the sand for the slam
+    RESORT.runTicks(1);
+    const hp3 = S.hero.hp;
+    S.pendings.push({ due: S.tick + 1, x: S.hero.x, z: S.hero.z, r: 3, dmg: 100, side: 'hostile' });
+    RESORT.runTicks(2);
+    return { cd, took1, took2, took3, slamTook: hp3 - S.hero.hp };
+  })()`);
+  ok(idr.cd > 12 && idr.took1 === idr.cd - 6 && idr.took2 === idr.cd - 12,
+    'KRAKEN SCALE eats 6 off a swing and SUMS with BARNACLE r1 (12 off)', `${idr.cd} -> ${idr.took1} -> ${idr.took2}`);
+  ok(idr.took3 === 1 && idr.slamTook === 100,
+    'the floor holds (they always land at least 1) and a slam ignores the scale entirely',
+    `floor=${idr.took3} slam=${idr.slamTook}`);
+
+  // LUCKY DOUBLOON: the crit roll exists ONLY while owned (the RNG law, drawn)
+  const dbl = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-dbl', 'wrestler', 7);
+    __ws3arm();
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = S.hero.x; c.z = S.hero.z - 1.0; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 900000;
+    c.dmg = 1;
+    const s0 = S.hero.swingN, d0 = S._draws;
+    let g = 0;
+    while (S.hero.swingN < s0 + 3 && g++ < 500) RESORT.runTicks(1);
+    const naked = S._draws - d0;
+    RESORT.buyItem('doubloon');
+    const s1 = S.hero.swingN, d1 = S._draws;
+    g = 0;
+    while (S.hero.swingN < s1 + 3 && g++ < 500) RESORT.runTicks(1);
+    const owned = S._draws - d1;
+    return { naked, owned, crit: S.hero.crit };
+  })()`);
+  ok(dbl.naked === 0 && dbl.owned === 3 && dbl.crit === 10,
+    'THE RNG LAW in one frame: three classic swings draw NOTHING; the doubloon adds exactly one draw per swing',
+    `${dbl.naked} -> ${dbl.owned}`);
+
+  // CARVED FIGUREHEAD feeds the summons through the same aura lane as TIKI
+  const fig = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-fig', 'wrestler', 8);
+    RESORT.buySpell('reefgolem');
+    RESORT.buyItem('figurehead');
+    __ws3arm();
+    RESORT.cast('R', S.hero.x, S.hero.z);
+    const a = S.allies[0];
+    // park the pair 14m out — past heroAcquire (7m), so the wrestler's 3.1m
+    // club can never join the measurement (it did once — reach is real)
+    a.x = S.hero.x - 14; a.z = S.hero.z; a.px = a.x; a.pz = a.z;
+    RESORT.spawn(1, 'crab');
+    const c = S.creeps.find(x => !x.dead);
+    c.x = a.x; c.z = a.z - 1.0; c.px = c.x; c.pz = c.z; c.hp = c.maxHp = 90000;
+    const hp0 = c.hp;
+    let g = 0;
+    while (c.hp === hp0 && g++ < 300) RESORT.runTicks(1);
+    return { took: hp0 - c.hp, want: Math.round(a.dmg * 1.12), aura: S.hero.auraDmgPct };
+  })()`);
+  ok(fig.aura === 12 && fig.took === fig.want,
+    'the FIGUREHEAD (+12%) feeds the golem through allyStep — round(dmg × 1.12), formula-exact',
+    `${fig.took} = ${fig.want}`);
+
+  // respec leaves the bag alone — items and charges survive, ledger sane
+  const irespec = await evalJs(`(()=>{
+    const S = __ws3jump('ws5-respec', 'wrestler', 7);
+    RESORT.buySpell('fireball');
+    RESORT.buyItem('powderkeg');
+    const r = RESORT.respec();
+    return { ok: r.ok, bag: S.items.length, charges: S.items[0] && S.items[0].charges,
+      spells: Object.keys(S.spells).length,
+      law: S.gold === 100 + 9000 + S.ledger.bounty + S.ledger.clears - S.ledger.spent };
+  })()`);
+  ok(irespec.ok && irespec.bag === 1 && irespec.charges === 3 && irespec.spells === 0 && irespec.law,
+    'the TIDE TABLET refunds pearls and leaves the bag alone — keg and charges intact, ledger sane');
+
+  // WS5 determinism: the same trader tape reproduces byte-for-byte, charges included
+  const ws5det = `(()=>{
+    const S = __ws3jump('ws5-det', 'wrestler', 7);
+    RESORT.buyItem('powderkeg');
+    RESORT.buyItem('blackspot');
+    __ws3arm();
+    RESORT.spawn(4, 'crab');
+    for (const c of S.creeps) if (!c.dead) { c.x = S.hero.x + 1.2; c.z = S.hero.z - 1; c.px = c.x; c.pz = c.z; }
+    RESORT.useItem(1);
+    RESORT.useItem(0);
+    RESORT.runTicks(200);
+    return RESORT.snapshot();
+  })()`;
+  const w5a = await evalJs(ws5det);
+  await sleep(300);
+  const w5b = await evalJs(ws5det);
+  ok(JSON.stringify(w5a) === JSON.stringify(w5b) && /powderkeg:2/.test(w5a.items) && /blackspot:1/.test(w5a.items),
+    'a WS5 trader tape (buys, a mark, a keg) reproduces byte-for-byte — snapshot carries the charge states',
+    w5a.items);
+
+  // WS2 phase matrix untouched: a bagged keg draws no chip through the washout
+  const ws5hud = await evalJs(`(async()=>{
+    const S = __ws3jump('ws5-hud', 'wrestler', 7);
+    RESORT.buyItem('powderkeg');
+    __ws3arm();
+    S.hero.hp = 1;
+    S.pendings.push({ due: S.tick + 1, x: S.hero.x, z: S.hero.z, r: 3, dmg: 5000, side: 'hostile' });
+    RESORT.runTicks(3);
+    for (let i = 0; i < 40 && RESORT.ui.phaseAttr !== 'WASHOUT'; i++) await new Promise(r => setTimeout(r, 100));
+    return { phase: RESORT.ui.phaseAttr, bag: S.items.length,
+      display: getComputedStyle(document.getElementById('items')).display }; })()`);
+  ok(ws5hud.phase === 'WASHOUT' && ws5hud.bag === 1 && ws5hud.display === 'none',
+    'the WS2 matrix held: a bagged keg draws NO chip through the washout vista', JSON.stringify(ws5hud));
+
+  // the market-break frame with the seventh stall: measured, logged, in budget
+  const mktFrame = await evalJs(`(async()=>{
+    RESORT.setSeed('ws5-mkt');
+    RESORT.pickBody('wrestler');
+    RESORT.state.hero.x = 0; RESORT.state.hero.z = 10;
+    RESORT.state.hero.px = 0; RESORT.state.hero.pz = 10;
+    RESORT.resume();
+    const f0 = RESORT.frames;
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 2; i++) await new Promise(r => setTimeout(r, 60));
+    const calls = RESORT.renderInfo.calls;
+    RESORT.pause(true);
+    return { calls, drew: RESORT.frames - f0 }; })()`);
+  ok(mktFrame.drew >= 2 && mktFrame.calls > 0 && mktFrame.calls <= 220,
+    'the market-break frame carries the PIRATE TRADER inside the 220 budget — measured, logged',
+    `calls=${mktFrame.calls}`);
+
   // --- 9. LIVE FRAME + SCREENSHOT ---------------------------------------
   console.log('\nRENDER');
   await evalJs('RESORT.i18nAudit(true)');

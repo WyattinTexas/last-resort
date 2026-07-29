@@ -288,6 +288,40 @@ export const ITEMS = [
     use: { shield: 300, sec: 10 }, desc: 'Drink: a 300-point shield for 10s.' },
   { id: 'chili', name: 'CHILI SQUEEZE', ico: '🌶️', price: 150, kind: 'potion',
     use: { buff: { sec: 10, dmgFlat: 20 } }, desc: 'Drink: +20 damage for 10s.' },
+
+  // -------------------------------------------------------------------------
+  // THE PIRATE TRADER (rev 2 WS5, §6 item arc) — docks at tide 6. A different
+  // species of stock: build-around passives that feed the WS3 rider lanes, and
+  // actives with CHARGES. Prices sit on the measured earned-by-break curve
+  // (first buy is a deliberate save ~t7-8; a full kit is impossible by design).
+  // Rows carry shop:'trader' (the shack filter skips them) + tide (buy gate).
+  // NOTE: MESSAGE IN A BOTTLE is deliberately NOT a self-res — SECOND SUNRISE
+  // owns cheat-death (the one-home law). The bottle cannot intercept a death.
+  // -------------------------------------------------------------------------
+  { id: 'cutlass', name: 'CUTLASS', ico: '⚔️', price: 900, kind: 'passive',
+    shop: 'trader', tide: 6, mods: { dmg: 26, cleavePct: 20, cleaveR: 1.7 },
+    desc: '+26 damage; melee swings splash 20% of the damage to creeps within 1.7m. Swings only.' },
+  { id: 'krakenscale', name: 'KRAKEN SCALE', ico: '🐙🛡️', price: 850, kind: 'passive',
+    shop: 'trader', tide: 6, mods: { hp: 220, flatDR: 6 },
+    desc: '+220 HP; swings against you hit for 6 less (they always land at least 1). Slams do not care.' },
+  { id: 'doubloon', name: 'LUCKY DOUBLOON', ico: '🪙', price: 800, kind: 'passive',
+    shop: 'trader', tide: 6, mods: { crit: 10 },
+    desc: '+10% chance your swings hit double.' },
+  { id: 'figurehead', name: 'CARVED FIGUREHEAD', ico: '🚢', price: 950, kind: 'passive',
+    shop: 'trader', tide: 6, mods: { dmgPct: 12 },
+    desc: '+12% damage for you AND anything you summon.' },
+  { id: 'powderkeg', name: 'POWDER KEG', ico: '🧨', price: 950, kind: 'active',
+    shop: 'trader', tide: 6, charges: 3, use: { nova: { r: 3.2, dmg: 220 } },
+    desc: 'Light it: 220 damage to everything within 3.2m of you. Refuses over empty sand. 3 charges.' },
+  { id: 'blackspot', name: 'THE BLACK SPOT', ico: '⚫', price: 1050, kind: 'active',
+    shop: 'trader', tide: 6, charges: 2, use: { nova: { r: 3.0, dmg: 0, vulnPct: 25, vulnSec: 6 } },
+    desc: 'Mark everything within 3m: +25% damage taken for 6s. 2 charges.' },
+  { id: 'ghostconch', name: 'GHOST CONCH', ico: '👻🐚', price: 1200, kind: 'active',
+    shop: 'trader', tide: 6, charges: 2, use: { ward: { sec: 5 } },
+    desc: 'Blow it: for 5s boss slams break harmless over you. 2 charges.' },
+  { id: 'bottle', name: 'MESSAGE IN A BOTTLE', ico: '🍾', price: 700, kind: 'active',
+    shop: 'trader', tide: 6, charges: 1, use: { healPct: 55, shedStun: true },
+    desc: 'Read it when the sea has you beaten: restore 55% of max HP and shed the stun. Corpses cannot read — this will not save you from a death, only from the road to one.' },
 ];
 export const ITEM = Object.fromEntries(ITEMS.map(i => [i.id, i]));
 
@@ -350,7 +384,11 @@ export const STALLS = [
   { id: 'deep',    name: 'DEEP RACK',    ico: '☄️', x: 18,   z: 3,   color: 0xE7C25C, kind: 'rack' },
   { id: 'fruit',   name: 'FRUIT STAND',  ico: '🥭', x: -15,  z: -11, color: 0xF0455C, kind: 'fruit' },
   { id: 'shack',   name: 'SURF SHACK',   ico: '🐚', x: 15,   z: -11, color: 0x9A6B3F, kind: 'shack' },
+  // WS5: the trader anchors the back-centre, behind the rack arc — the market
+  // camera faces it, so the new shop is the marquee. Clears the port-in point
+  // (0,-14) by 26m and both centre racks by ~7.4m (no STALL_REACH contention).
+  { id: 'trader',  name: 'PIRATE TRADER', ico: '⚓', x: 0,   z: 12.5, color: 0x2E3A46, kind: 'trader' },
 ];
 export const STALL_REACH = 6.0;   // metres from stall centre that counts as "at the counter"
 
-export const CAT_COLOR = { STRIKE: '#FF8C5A', GUARD: '#7AC8FF', CURRENT: '#7FE7D8', DEEP: '#E7C25C' };
+export const CAT_COLOR = { STRIKE: '#FF8C5A', GUARD: '#7AC8FF', CURRENT: '#7FE7D8', DEEP: '#E7C25C', ITEM: '#E7C25C' };

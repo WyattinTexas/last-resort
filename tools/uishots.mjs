@@ -473,6 +473,78 @@ const main = async () => {
   await snap('ws4-graveyard.png');
   await evalJs('(RESORT.fx.freeze(0), 1)');
 
+  // 7.9 WS5 ITEMS — the PIRATE TRADER open on a t7 break (unlocked rows
+  // stating their numbers, charges chips in the bag), then the POWDER KEG
+  // mid-pop in a t7 lab. Every freeze rides the frames-advance poll (WS4 law).
+  await evalJs(`(()=>{
+    RESORT.pause(true);
+    RESORT.setSeed('ws5-trader-shot');
+    RESORT.pickBody('wrestler');
+    RESORT.giveGold(3200);
+    const S = RESORT.state;
+    S.tide = 6; S.cleared = 6; S.phase = 'BREAK'; S.phaseTicks = 600;
+    RESORT.runTicks(1);
+    RESORT.buyItem('ghostconch');       // ×2 chip — WS2: chrome exists because items do
+    RESORT.buyItem('powderkeg');        // ×3 chip
+    S.hero.x = 0; S.hero.z = 9.5; S.hero.px = 0; S.hero.pz = 9.5;
+    S.hero.tx = 0; S.hero.tz = 9.5;     // at the trader counter, back-centre
+    return S.items.length;
+  })()`);
+  await evalJs('RESORT.resume()');
+  await evalJs(`(async()=>{
+    for (let i = 0; i < 50; i++) {
+      if (document.getElementById('sheet').classList.contains('show')
+        && document.querySelectorAll('#sheet-rows .srow').length === 8
+        && document.querySelectorAll('#items .itemchip.active').length === 2) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const f0 = RESORT.frames;
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 1; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.frames - f0; })()`);
+  await sleep(4200);       // the sheet settles AND the 4s forge announce expires
+  await snap('ws5-trader.png');
+  await evalJs('(RESORT.pause(true), RESORT.state.hero.x = 0, RESORT.state.hero.z = -14, RESORT.state.hero.px = 0, RESORT.state.hero.pz = -14, 1)');
+
+  await evalJs(`(()=>{
+    RESORT.setSeed('ws5-keg-shot');
+    RESORT.pickBody('wrestler');
+    RESORT.giveGold(1200);
+    const S = RESORT.state;
+    S.tide = 6; S.cleared = 6; S.phase = 'BREAK'; S.phaseTicks = 30;
+    RESORT.buyItem('powderkeg');
+    let g = 0;
+    while (S.phase !== 'TIDE' && g++ < 200) RESORT.runTicks(1);
+    RESORT.runTicks(1);
+    S.quota = 9999; S.spawned = 9999;     // the lab owns the sand (t7: clean tide)
+    for (const c of S.creeps) { c.dead = true; c.receded = true; }
+    RESORT.runTicks(1);
+    RESORT.spawn(7, 'crab');
+    let k = 0;
+    for (const c of S.creeps) if (!c.dead) {
+      c.x = S.hero.x - 2.4 + (k % 4) * 1.6; c.z = S.hero.z - 1.6 - Math.floor(k / 4) * 1.4;
+      c.px = c.x; c.pz = c.z; k++;
+    }
+    return S.creeps.filter(c => !c.dead).length;
+  })()`);
+  // the market->square port glide rides dt: let the CAMERA LAND first (a
+  // freeze mid-glide shot one frame of empty sand — relearned in pixels),
+  // and the teleported pack's stale entrance curves drop with it
+  await sleep(1500);
+  await evalJs('(RESORT.sceneApi.clearFx(), 1)');
+  await evalJs(`(()=>{
+    const u = RESORT.useItem(0);          // LIGHT IT — 220 to the whole ring
+    RESORT.runTicks(4);                   // hitFlash (3t) passes; floats stay up
+    return u.ok;
+  })()`);
+  await sleep(220);        // the gold ring expands into frame...
+  await evalJs(`(async()=>{
+    const f0 = RESORT.frames;
+    RESORT.fx.freeze(20000);
+    for (let i = 0; i < 80 && RESORT.frames <= f0 + 1; i++) await new Promise(r => setTimeout(r, 60));
+    return RESORT.frames - f0; })()`);
+  await snap('ws5-keg.png');
+  await evalJs('(RESORT.fx.freeze(0), 1)');
+
   // 8. WS2 MOBILE — the phone frames at 844×390 under real touch emulation:
   // a built hero mid-tide with ZERO floating buttons (the workstream's
   // poster) and the compact market break. IS_TOUCH sniffs at boot, so the
